@@ -46,7 +46,7 @@ const Sidebar = ({ isOpen }) => {
             'Authorization': `Bearer ${token}`
           }
         });
-        
+         console.log(response.data)
         if (response.data.success) {
           // response.data.permissions is an array of permission strings
           setAdminPermissions(response.data.permissions || []);
