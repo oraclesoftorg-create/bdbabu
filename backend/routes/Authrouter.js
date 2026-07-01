@@ -12,7 +12,6 @@ const JWT_SECRET = process.env.JWT_SECRET || "fsdfsdfsd43534";
 const AFFILIATE_JWT_SECRET = process.env.AFFILIATE_JWT_SECRET || "dfsdfsdf535345";
 
 // ==================== SMS CONFIGURATION ====================
-// Using the API from the documentation
 const SMS_CONFIG = {
     API_KEY: "eb9d3c68ed3a4157f6a77b6cf2711c7c7b36e40b51c55a085d7794c3919b4a41",
     BASE_URL: "https://api.o-sms.com/api/service",
@@ -32,7 +31,7 @@ function generateOTP(length = OTP_CONFIG.CODE_LENGTH) {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-// Helper function to format phone number for Bangladesh
+// Helper function to format phone number for storage and API
 function formatBangladeshPhone(phone) {
     if (!phone) return null;
     
@@ -44,9 +43,9 @@ function formatBangladeshPhone(phone) {
         cleaned = cleaned.substring(1);
     }
     
-    // If it starts with 880, remove the 88 part
+    // If it already has 880, keep it
     if (cleaned.startsWith('880')) {
-        cleaned = cleaned.substring(2);
+        return cleaned;
     }
     
     // Ensure it's a valid Bangladeshi number (10 digits starting with 1)
@@ -54,7 +53,22 @@ function formatBangladeshPhone(phone) {
         return `880${cleaned}`;
     }
     
+    // If it's 11 digits starting with 1, remove the first 1 and add 880
+    if (cleaned.length === 11 && cleaned.startsWith('1')) {
+        return `880${cleaned.substring(1)}`;
+    }
+    
     return null;
+}
+
+// Helper function to format phone for display
+function formatPhoneForDisplay(phone) {
+    if (!phone) return null;
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('880')) {
+        cleaned = cleaned.substring(3);
+    }
+    return cleaned;
 }
 
 // Helper function to send SMS via the O-SMS API
@@ -87,12 +101,11 @@ async function sendSMS(phoneNumber, message) {
 
         console.log('SMS API Response:', response.data);
 
-        // Check if the response indicates success
         if (response.data && response.data.success === true) {
             return { 
                 success: true, 
                 data: response.data,
-                otp: response.data.otp // The API returns OTP in the response
+                otp: response.data.otp
             };
         } else {
             console.error('SMS sending failed:', response.data);
@@ -110,7 +123,7 @@ async function sendSMS(phoneNumber, message) {
     }
 }
 
-// Helper function to send single SMS (for non-OTP messages)
+// Helper function to send single SMS
 async function sendSingleSMS(phoneNumber, message) {
     try {
         let apiPhone = phoneNumber.replace(/\D/g, '');
@@ -138,8 +151,6 @@ async function sendSingleSMS(phoneNumber, message) {
             }
         });
 
-        console.log('Single SMS API Response:', response.data);
-
         if (response.data && response.data.success === true) {
             return { success: true, data: response.data };
         } else {
@@ -160,14 +171,12 @@ async function sendSingleSMS(phoneNumber, message) {
 
 // ==================== MIDDLEWARE & HELPER FUNCTIONS ====================
 
-// Function to generate a random player ID
 const generatePlayerId = () => {
     const prefix = "PID";
     const randomNum = Math.floor(100000 + Math.random() * 900000);
     return `${prefix}${randomNum}`;
 };
 
-// Helper function to get device info
 const getDeviceInfo = (userAgent) => {
     let deviceType = 'unknown';
     let browser = 'unknown';
@@ -191,7 +200,6 @@ const getDeviceInfo = (userAgent) => {
     return { deviceType, browser, os };
 };
 
-// Helper function to validate payment details
 const validatePaymentDetails = (paymentMethod, paymentData) => {
     switch (paymentMethod) {
         case 'bkash':
@@ -225,9 +233,9 @@ const validatePaymentDetails = (paymentMethod, paymentData) => {
     return { isValid: true };
 };
 
-// ==================== OTP & PHONE VERIFICATION ROUTES ====================
+// ==================== OTP ROUTES ====================
 
-// Request OTP for phone verification during signup
+// Request OTP for signup
 Authrouter.post("/request-signup-otp", async (req, res) => {
     try {
         const { phone } = req.body;
@@ -239,7 +247,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             });
         }
 
-        // Format phone number for Bangladesh
+        // Format phone number for storage (without +88)
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -249,8 +257,8 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             });
         }
 
-        // Check if phone is already registered
-        const existingUser = await User.findOne({ phone: `+88${formattedPhone}` });
+        // Check if phone is already registered (using the formatted phone without +)
+        const existingUser = await User.findOne({ phone: formattedPhone });
         if (existingUser) {
             return res.status(400).json({
                 success: false,
@@ -264,7 +272,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
         // Calculate expiry time
         const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
 
-        // Store OTP in memory
+        // Store OTP in memory using the formatted phone as key
         global.otpStore = global.otpStore || {};
         
         global.otpStore[formattedPhone] = {
@@ -275,13 +283,13 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             createdAt: new Date()
         };
 
-        // Prepare SMS message in Bengali for better user experience
+        console.log(`OTP stored for ${formattedPhone}: ${otpCode}`);
+
+        // Send SMS
         const message = `আপনার ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
 
-        // Send SMS using the O-SMS API
         const smsResult = await sendSMS(formattedPhone, message);
 
-        // For development/testing, always return success with OTP
         if (process.env.NODE_ENV === 'development') {
             return res.json({
                 success: true,
@@ -289,7 +297,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
+                    phone: formattedPhone
                 }
             });
         }
@@ -300,9 +308,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 message: 'OTP sent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`,
-                    // In production, don't send the OTP in response
-                    // Only include for development
+                    phone: formattedPhone
                 }
             });
         } else {
@@ -312,7 +318,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 message: 'OTP generated but SMS delivery failed. Please try again or use development mode.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`,
+                    phone: formattedPhone,
                     devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
                 }
             });
@@ -320,102 +326,6 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
 
     } catch (error) {
         console.error("Request signup OTP error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
-});
-
-// Request OTP for login
-Authrouter.post("/request-login-otp", async (req, res) => {
-    try {
-        const { phone } = req.body;
-
-        if (!phone) {
-            return res.status(400).json({
-                success: false,
-                message: "Phone number is required"
-            });
-        }
-
-        // Format phone number
-        const formattedPhone = formatBangladeshPhone(phone);
-        
-        if (!formattedPhone) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid Bangladeshi phone number"
-            });
-        }
-
-        // Check if user exists with this phone
-        const user = await User.findOne({ phone: `+88${formattedPhone}` });
-        
-        if (!user) {
-            // Don't reveal that user doesn't exist for security reasons
-            return res.json({
-                success: true,
-                message: "If this phone number is registered, you will receive an OTP"
-            });
-        }
-
-        // Generate OTP
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        // Store OTP in user record
-        user.otp = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            purpose: 'login',
-            verified: false
-        };
-        
-        await user.save();
-
-        // Prepare SMS message
-        const message = `আপনার লগইন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour login verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-
-        // Send SMS using the O-SMS API
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        // For development/testing
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP sent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
-
-        if (smsResult.success) {
-            res.json({
-                success: true,
-                message: 'OTP sent successfully. Please check your phone.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        } else {
-            console.error('SMS sending failed but OTP saved:', smsResult.error);
-            res.json({
-                success: true,
-                message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
-
-    } catch (error) {
-        console.error("Request login OTP error:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error"
@@ -445,9 +355,14 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             });
         }
 
-        // Check OTP from store
+        // Check OTP from store - using formatted phone as key
         global.otpStore = global.otpStore || {};
         const storedOTP = global.otpStore[formattedPhone];
+
+        console.log(`Verifying OTP for ${formattedPhone}:`, {
+            stored: storedOTP,
+            received: otp
+        });
 
         if (!storedOTP) {
             return res.status(400).json({
@@ -482,7 +397,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             });
         }
 
-        // Verify OTP
+        // Verify OTP - compare as strings
         if (storedOTP.code !== otp.toString()) {
             return res.status(400).json({
                 success: false,
@@ -536,7 +451,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
 
         // Check if user already exists
         const existingUser = await User.findOne({
-            $or: [{ username }, { phone: `+88${formattedPhone}` }, { email }]
+            $or: [{ username }, { phone: formattedPhone }, { email }]
         });
 
         if (existingUser) {
@@ -546,7 +461,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
                     message: "Username already exists." 
                 });
             }
-            if (existingUser.phone === `+88${formattedPhone}`) {
+            if (existingUser.phone === formattedPhone) {
                 return res.status(400).json({ 
                     success: false,
                     message: "Phone number already registered." 
@@ -599,9 +514,9 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             timestamp: new Date()
         };
 
-        // Create new user
+        // Create new user - store phone without +88
         const newUser = new User({
-            phone: `+88${formattedPhone}`,
+            phone: formattedPhone,
             username,
             password,
             fullName,
@@ -754,6 +669,189 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
     }
 });
 
+// Resend OTP for signup
+Authrouter.post("/resend-signup-otp", async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({
+                success: false,
+                message: "Phone number is required"
+            });
+        }
+
+        const formattedPhone = formatBangladeshPhone(phone);
+        
+        if (!formattedPhone) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Bangladeshi phone number"
+            });
+        }
+
+        // Check cooldown
+        global.otpStore = global.otpStore || {};
+        const existingOTP = global.otpStore[formattedPhone];
+        
+        if (existingOTP) {
+            const timeSinceLastRequest = (new Date() - new Date(existingOTP.createdAt)) / 1000;
+            if (timeSinceLastRequest < OTP_CONFIG.RESEND_COOLDOWN_SECONDS) {
+                const waitSeconds = Math.ceil(OTP_CONFIG.RESEND_COOLDOWN_SECONDS - timeSinceLastRequest);
+                return res.status(429).json({
+                    success: false,
+                    message: `Please wait ${waitSeconds} seconds before requesting a new OTP`
+                });
+            }
+        }
+
+        // Generate new OTP
+        const otpCode = generateOTP();
+        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+        global.otpStore[formattedPhone] = {
+            code: otpCode,
+            expiresAt: expiresAt,
+            attempts: 0,
+            purpose: 'signup',
+            createdAt: new Date()
+        };
+
+        const message = `আপনার নতুন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour new verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
+        
+        const smsResult = await sendSMS(formattedPhone, message);
+
+        if (process.env.NODE_ENV === 'development') {
+            return res.json({
+                success: true,
+                message: 'OTP resent successfully (Development Mode)',
+                data: {
+                    otp: otpCode,
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        }
+
+        if (smsResult.success) {
+            res.json({
+                success: true,
+                message: 'OTP resent successfully. Please check your phone.',
+                data: {
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        } else {
+            res.json({
+                success: true,
+                message: 'OTP regenerated but SMS delivery failed. Please try again.',
+                data: {
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Resend signup OTP error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+// ==================== LOGIN ROUTES ====================
+
+// Request OTP for login
+Authrouter.post("/request-login-otp", async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({
+                success: false,
+                message: "Phone number is required"
+            });
+        }
+
+        const formattedPhone = formatBangladeshPhone(phone);
+        
+        if (!formattedPhone) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Bangladeshi phone number"
+            });
+        }
+
+        const user = await User.findOne({ phone: formattedPhone });
+        
+        if (!user) {
+            return res.json({
+                success: true,
+                message: "If this phone number is registered, you will receive an OTP"
+            });
+        }
+
+        const otpCode = generateOTP();
+        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+        user.otp = {
+            code: otpCode,
+            expiresAt: expiresAt,
+            purpose: 'login',
+            verified: false
+        };
+        
+        await user.save();
+
+        const message = `আপনার লগইন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour login verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
+
+        const smsResult = await sendSMS(formattedPhone, message);
+
+        if (process.env.NODE_ENV === 'development') {
+            return res.json({
+                success: true,
+                message: 'OTP sent successfully (Development Mode)',
+                data: {
+                    otp: otpCode,
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        }
+
+        if (smsResult.success) {
+            res.json({
+                success: true,
+                message: 'OTP sent successfully. Please check your phone.',
+                data: {
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        } else {
+            console.error('SMS sending failed but OTP saved:', smsResult.error);
+            res.json({
+                success: true,
+                message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
+                data: {
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Request login OTP error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
 // Verify OTP and login
 Authrouter.post("/verify-login-otp", async (req, res) => {
     try {
@@ -766,7 +864,6 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
             });
         }
 
-        // Format phone number
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -776,8 +873,7 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
             });
         }
 
-        // Find user by phone
-        const user = await User.findOne({ phone: `+88${formattedPhone}` }).select("+password");
+        const user = await User.findOne({ phone: formattedPhone }).select("+password");
 
         if (!user) {
             return res.status(404).json({
@@ -786,7 +882,6 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
             });
         }
 
-        // Check OTP
         if (!user.otp || user.otp.purpose !== 'login') {
             return res.status(400).json({
                 success: false,
@@ -808,10 +903,8 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
             });
         }
 
-        // Mark OTP as verified
         user.otp.verified = true;
         
-        // Update login info
         const ipAddress = req.ip || req.connection.remoteAddress;
         const userAgent = req.get('User-Agent') || 'unknown';
         
@@ -821,7 +914,6 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
         
         await user.save();
 
-        // Create login log
         const { deviceType, browser, os } = getDeviceInfo(userAgent);
         
         const LoginLog = require('../models/LoginLog');
@@ -838,7 +930,6 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
         
         await loginLog.save();
 
-        // Generate JWT token
         const token = jwt.sign(
             { userId: user._id, username: user.username },
             JWT_SECRET,
@@ -877,169 +968,9 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
     }
 });
 
-// Resend OTP for signup
-Authrouter.post("/resend-signup-otp", async (req, res) => {
-    try {
-        const { phone } = req.body;
-
-        if (!phone) {
-            return res.status(400).json({
-                success: false,
-                message: "Phone number is required"
-            });
-        }
-
-        // Format phone number
-        const formattedPhone = formatBangladeshPhone(phone);
-        
-        if (!formattedPhone) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid Bangladeshi phone number"
-            });
-        }
-
-        // Check cooldown
-        global.otpStore = global.otpStore || {};
-        const existingOTP = global.otpStore[formattedPhone];
-        
-        if (existingOTP) {
-            const timeSinceLastRequest = (new Date() - new Date(existingOTP.createdAt)) / 1000;
-            if (timeSinceLastRequest < OTP_CONFIG.RESEND_COOLDOWN_SECONDS) {
-                const waitSeconds = Math.ceil(OTP_CONFIG.RESEND_COOLDOWN_SECONDS - timeSinceLastRequest);
-                return res.status(429).json({
-                    success: false,
-                    message: `Please wait ${waitSeconds} seconds before requesting a new OTP`
-                });
-            }
-        }
-
-        // Generate new OTP
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        // Store new OTP
-        global.otpStore[formattedPhone] = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            attempts: 0,
-            purpose: 'signup',
-            createdAt: new Date()
-        };
-
-        // Send SMS
-        const message = `আপনার নতুন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour new verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-        
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP resent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
-
-        if (smsResult.success) {
-            res.json({
-                success: true,
-                message: 'OTP resent successfully. Please check your phone.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        } else {
-            res.json({
-                success: true,
-                message: 'OTP regenerated but SMS delivery failed. Please try again.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
-
-    } catch (error) {
-        console.error("Resend signup OTP error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
-});
+// ==================== PASSWORD RESET ROUTES ====================
 
 // Request OTP for password reset
-Authrouter.post("/request-password-reset-otp", async (req, res) => {
-    try {
-        const { phone } = req.body;
-
-        if (!phone) {
-            return res.status(400).json({
-                success: false,
-                message: "Phone number is required"
-            });
-        }
-
-        // Format phone number
-        const formattedPhone = formatBangladeshPhone(phone);
-        
-        if (!formattedPhone) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid Bangladeshi phone number"
-            });
-        }
-
-        // Find user by phone
-        const user = await User.findOne({ phone: `+88${formattedPhone}` });
-
-        if (!user) {
-            return res.json({
-                success: true,
-                message: "If this phone number is registered, you will receive an OTP"
-            });
-        }
-
-        // Generate OTP
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        // Store OTP in user record
-        user.otp = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            purpose: 'password_reset',
-            verified: false
-        };
-        
-        await user.save();
-
-        // Send SMS
-        const message = `আপনার পাসওয়ার্ড রিসেট কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour password reset code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-        
-        await sendSMS(formattedPhone, message);
-
-        res.json({
-            success: true,
-            message: "If this phone number is registered, you will receive an OTP",
-            data: process.env.NODE_ENV === 'development' ? { otp: otpCode } : undefined
-        });
-
-    } catch (error) {
-        console.error("Request password reset OTP error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
-});
-
-// Request OTP for forgot password
 Authrouter.post("/forgot-password/request-otp", async (req, res) => {
     try {
         const { phone } = req.body;
@@ -1060,7 +991,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ phone: `+88${formattedPhone}` });
+        const user = await User.findOne({ phone: formattedPhone });
         
         if (!user) {
             return res.json({
@@ -1094,7 +1025,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
+                    phone: formattedPhone
                 }
             });
         }
@@ -1105,7 +1036,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 message: 'OTP sent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
+                    phone: formattedPhone
                 }
             });
         } else {
@@ -1115,7 +1046,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`,
+                    phone: formattedPhone,
                     devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
                 }
             });
@@ -1130,7 +1061,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
     }
 });
 
-// Verify OTP for forgot password
+// Verify OTP for password reset
 Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
     try {
         const { phone, otp } = req.body;
@@ -1151,7 +1082,7 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ phone: `+88${formattedPhone}` });
+        const user = await User.findOne({ phone: formattedPhone });
 
         if (!user) {
             return res.status(404).json({
@@ -1218,7 +1149,7 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             message: 'OTP verified successfully',
             data: {
                 resetToken,
-                phone: `+88${formattedPhone}`
+                phone: formattedPhone
             }
         });
 
@@ -1303,7 +1234,7 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
         await user.save();
 
         const message = `আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।\n\nYour password has been changed successfully.`;
-        await sendSingleSMS(user.phone.replace('+88', ''), message).catch(err => 
+        await sendSingleSMS(user.phone, message).catch(err => 
             console.error('Failed to send password change SMS:', err)
         );
 
@@ -1321,102 +1252,184 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
     }
 });
 
-// Resend OTP for forgot password
-Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
+// ==================== LOGIN ROUTE (Username/Password) ====================
+
+Authrouter.post("/login", async (req, res) => {
     try {
-        const { phone } = req.body;
+        const { username, password } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('User-Agent') || 'unknown';
 
-        if (!phone) {
-            return res.status(400).json({
+        if (!username || !password) {
+            return res.status(400).json({ 
                 success: false,
-                message: "Phone number is required"
+                error: "Username and password are required" 
             });
         }
 
-        const formattedPhone = formatBangladeshPhone(phone);
+        const user = await User.findOne({ username }).select("+password");
         
-        if (!formattedPhone) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid Bangladeshi phone number"
-            });
-        }
-
-        const user = await User.findOne({ phone: `+88${formattedPhone}` });
+        const { deviceType, browser, os } = getDeviceInfo(userAgent);
 
         if (!user) {
-            return res.json({
-                success: true,
-                message: "If this phone number is registered, you will receive an OTP"
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: null,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: 'user_not_found'
+            });
+            
+            await loginLog.save();
+            
+            return res.status(401).json({ 
+                success: false,
+                error: "Invalid username or password" 
             });
         }
 
-        if (user.otp && user.otp.createdAt) {
-            const timeSinceLastRequest = (new Date() - new Date(user.otp.createdAt)) / 1000;
-            if (timeSinceLastRequest < OTP_CONFIG.RESEND_COOLDOWN_SECONDS) {
-                const waitSeconds = Math.ceil(OTP_CONFIG.RESEND_COOLDOWN_SECONDS - timeSinceLastRequest);
-                return res.status(429).json({
-                    success: false,
-                    message: `Please wait ${waitSeconds} seconds before requesting a new OTP`
-                });
-            }
+        if (user.status !== 'active') {
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: user._id,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: `account_${user.status}`
+            });
+            
+            await loginLog.save();
+            
+            return res.status(403).json({ 
+                success: false,
+                error: `Your account is ${user.status}. Please contact support.` 
+            });
         }
 
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+        const isPasswordValid = await user.verifyPassword(password);
+        
+        if (!isPasswordValid) {
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: user._id,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: 'invalid_password'
+            });
+            
+            await loginLog.save();
+            
+            return res.status(401).json({ 
+                success: false,
+                error: "Invalid username or password" 
+            });
+        }
 
-        user.otp = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            purpose: 'password_reset',
-            verified: false,
-            attempts: 0,
-            createdAt: new Date()
-        };
+        user.login_count = (user.login_count || 0) + 1;
+        user.last_login = new Date();
+        user.first_login = false;
+        
+        if (!user.loginHistory) {
+            user.loginHistory = [];
+        }
+        
+        user.loginHistory.push({
+            ipAddress,
+            device: deviceType,
+            userAgent,
+            location: 'Unknown',
+            timestamp: new Date()
+        });
+        
+        if (user.loginHistory.length > 10) {
+            user.loginHistory = user.loginHistory.slice(-10);
+        }
         
         await user.save();
 
-        const message = `আপনার নতুন পাসওয়ার্ড রিসেট কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour new password reset code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
+        const LoginLog = require('../models/LoginLog');
+        const loginLog = new LoginLog({
+            userId: user._id,
+            username,
+            ipAddress,
+            userAgent,
+            deviceType,
+            browser,
+            os,
+            status: 'success',
+            failureReason: null
+        });
         
-        const smsResult = await sendSMS(formattedPhone, message);
+        await loginLog.save();
 
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP resent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
+        const token = jwt.sign(
+            { 
+                userId: user._id, 
+                username: user.username,
+                role: user.role 
+            },
+            JWT_SECRET,
+            { expiresIn: "30d" }
+        );
 
-        if (smsResult.success) {
-            res.json({
-                success: true,
-                message: 'OTP resent successfully. Please check your phone.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        } else {
-            res.json({
-                success: true,
-                message: 'OTP regenerated but SMS delivery failed. Please try again.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: `+88${formattedPhone}`
-                }
-            });
-        }
+        res.json({
+            success: true,
+            message: "Login successful",
+            token,
+            user: {
+                id: user._id,
+                player_id: user.player_id,
+                username: user.username,
+                email: user.email,
+                phone: user.phone,
+                currency: user.currency,
+                balance: user.balance,
+                bonusBalance: user.bonusBalance,
+                total_deposit: user.total_deposit,
+                total_withdraw: user.total_withdraw,
+                total_bet: user.total_bet,
+                total_wins: user.total_wins,
+                referralCode: user.referralCode,
+                role: user.role,
+                status: user.status,
+                first_login: user.first_login,
+                login_count: user.login_count,
+                last_login: user.last_login,
+                isPhoneVerified: user.isPhoneVerified,
+                isEmailVerified: user.isEmailVerified,
+                kycStatus: user.kycStatus,
+                language: user.language,
+                themePreference: user.themePreference,
+                avatar: user.avatar,
+                accountAgeInDays: user.accountAgeInDays,
+                isNewUser: user.isNewUser,
+                availableBalance: user.availableBalance,
+                withdrawableAmount: user.withdrawableAmount,
+                wageringStatus: user.wageringStatus,
+                isAffiliateReferred: user.isAffiliateReferred,
+                availableBonuses: user.getAvailableBonusOffers ? user.getAvailableBonusOffers() : []
+            }
+        });
 
     } catch (error) {
-        console.error("Resend password reset OTP error:", error);
-        res.status(500).json({
+        console.error("Login error:", error);
+        res.status(500).json({ 
             success: false,
-            message: "Internal server error"
+            error: "Internal server error during login" 
         });
     }
 });
@@ -1917,7 +1930,6 @@ Authrouter.post("/track-click", async (req, res) => {
             $inc: { clickCount: 1 }
         });
 
-        // Try to save click data if ClickTrack model exists
         try {
             const ClickTrack = require('../models/ClickTrack');
             const clickData = new ClickTrack({
@@ -1970,7 +1982,7 @@ Authrouter.post("/track-click", async (req, res) => {
     }
 });
 
-// Signup route (with OTP)
+// Signup route (without OTP - for backward compatibility)
 Authrouter.post("/signup", async (req, res) => {
     try {
         const { currency, phone, username, password, confirmPassword, fullName, email, referralCode, affiliateCode } = req.body;
@@ -1984,10 +1996,11 @@ Authrouter.post("/signup", async (req, res) => {
             });
         }
 
-        if (!/^1[0-9]{9}$/.test(phone)) {
+        const formattedPhone = formatBangladeshPhone(phone);
+        if (!formattedPhone) {
             return res.status(400).json({ 
                 success: false,
-                error: "Please enter a valid Bangladeshi phone number, starting with 1." 
+                error: "Please enter a valid Bangladeshi phone number." 
             });
         }
 
@@ -2032,7 +2045,7 @@ Authrouter.post("/signup", async (req, res) => {
         }
 
         const existingUser = await User.findOne({
-            $or: [{ username }, { phone: `+88${phone}` }, { email }]
+            $or: [{ username }, { phone: formattedPhone }, { email }]
         });
 
         if (existingUser) {
@@ -2042,7 +2055,7 @@ Authrouter.post("/signup", async (req, res) => {
                     error: "Username already exists." 
                 });
             }
-            if (existingUser.phone === `+88${phone}`) {
+            if (existingUser.phone === formattedPhone) {
                 return res.status(400).json({ 
                     success: false,
                     error: "Phone number already registered." 
@@ -2082,7 +2095,7 @@ Authrouter.post("/signup", async (req, res) => {
 
         const newUser = new User({
             currency: currency || "BDT",
-            phone: `+88${phone}`,
+            phone: formattedPhone,
             username,
             password,
             fullName,
@@ -2339,187 +2352,6 @@ Authrouter.get("/affiliate-stats", async (req, res) => {
         res.status(500).json({
             success: false,
             error: "Internal server error"
-        });
-    }
-});
-
-// Login route
-Authrouter.post("/login", async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const ipAddress = req.ip || req.connection.remoteAddress;
-        const userAgent = req.get('User-Agent') || 'unknown';
-
-        if (!username || !password) {
-            return res.status(400).json({ 
-                success: false,
-                error: "Username and password are required" 
-            });
-        }
-
-        const user = await User.findOne({ username }).select("+password");
-        
-        const { deviceType, browser, os } = getDeviceInfo(userAgent);
-
-        if (!user) {
-            const LoginLog = require('../models/LoginLog');
-            const loginLog = new LoginLog({
-                userId: null,
-                username,
-                ipAddress,
-                userAgent,
-                deviceType,
-                browser,
-                os,
-                status: 'failed',
-                failureReason: 'user_not_found'
-            });
-            
-            await loginLog.save();
-            
-            return res.status(401).json({ 
-                success: false,
-                error: "Invalid username or password" 
-            });
-        }
-
-        if (user.status !== 'active') {
-            const LoginLog = require('../models/LoginLog');
-            const loginLog = new LoginLog({
-                userId: user._id,
-                username,
-                ipAddress,
-                userAgent,
-                deviceType,
-                browser,
-                os,
-                status: 'failed',
-                failureReason: `account_${user.status}`
-            });
-            
-            await loginLog.save();
-            
-            return res.status(403).json({ 
-                success: false,
-                error: `Your account is ${user.status}. Please contact support.` 
-            });
-        }
-
-        const isPasswordValid = await user.verifyPassword(password);
-        
-        if (!isPasswordValid) {
-            const LoginLog = require('../models/LoginLog');
-            const loginLog = new LoginLog({
-                userId: user._id,
-                username,
-                ipAddress,
-                userAgent,
-                deviceType,
-                browser,
-                os,
-                status: 'failed',
-                failureReason: 'invalid_password'
-            });
-            
-            await loginLog.save();
-            
-            return res.status(401).json({ 
-                success: false,
-                error: "Invalid username or password" 
-            });
-        }
-
-        user.login_count = (user.login_count || 0) + 1;
-        user.last_login = new Date();
-        user.first_login = false;
-        
-        if (!user.loginHistory) {
-            user.loginHistory = [];
-        }
-        
-        user.loginHistory.push({
-            ipAddress,
-            device: deviceType,
-            userAgent,
-            location: 'Unknown',
-            timestamp: new Date()
-        });
-        
-        if (user.loginHistory.length > 10) {
-            user.loginHistory = user.loginHistory.slice(-10);
-        }
-        
-        await user.save();
-
-        const LoginLog = require('../models/LoginLog');
-        const loginLog = new LoginLog({
-            userId: user._id,
-            username,
-            ipAddress,
-            userAgent,
-            deviceType,
-            browser,
-            os,
-            status: 'success',
-            failureReason: null
-        });
-        
-        await loginLog.save();
-
-        const token = jwt.sign(
-            { 
-                userId: user._id, 
-                username: user.username,
-                role: user.role 
-            },
-            JWT_SECRET,
-            { expiresIn: "30d" }
-        );
-
-        res.json({
-            success: true,
-            message: "Login successful",
-            token,
-            user: {
-                id: user._id,
-                player_id: user.player_id,
-                username: user.username,
-                email: user.email,
-                phone: user.phone,
-                currency: user.currency,
-                balance: user.balance,
-                bonusBalance: user.bonusBalance,
-                total_deposit: user.total_deposit,
-                total_withdraw: user.total_withdraw,
-                total_bet: user.total_bet,
-                total_wins: user.total_wins,
-                referralCode: user.referralCode,
-                role: user.role,
-                status: user.status,
-                first_login: user.first_login,
-                login_count: user.login_count,
-                last_login: user.last_login,
-                isPhoneVerified: user.isPhoneVerified,
-                isEmailVerified: user.isEmailVerified,
-                kycStatus: user.kycStatus,
-                language: user.language,
-                themePreference: user.themePreference,
-                avatar: user.avatar,
-                accountAgeInDays: user.accountAgeInDays,
-                isNewUser: user.isNewUser,
-                availableBalance: user.availableBalance,
-                withdrawableAmount: user.withdrawableAmount,
-                wageringStatus: user.wageringStatus,
-                isAffiliateReferred: user.isAffiliateReferred,
-                availableBonuses: user.getAvailableBonusOffers ? user.getAvailableBonusOffers() : []
-            }
-        });
-
-    } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ 
-            success: false,
-            error: "Internal server error during login" 
         });
     }
 });
