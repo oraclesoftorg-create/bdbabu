@@ -319,46 +319,31 @@ module.exports = function opayApi(settingsCollection) {
   });
 
   // Return Opay settings - FAST response with cached validation
-  router.get("/settings", async (req, res) => {
-    try {
-      const useCached = req.query.cached === "true";
-      const saved = await getSettings();
-      let currentValidation = saved?.validation || null;
-      
-      // Only validate if not cached and API key exists
-      if (saved?.apiKey && !useCached) {
-        try {
-          // Use cached validation if available
-          const result = await performValidation(saved.apiKey, false, true);
-          currentValidation = result.body;
-        } catch (e) {
-          console.error("Error refreshing validation:", e.message);
-          // Use saved validation if available
-          if (saved?.validation) {
-            currentValidation = saved.validation;
-          }
-        }
-      }
-      
-      // Return response immediately
-      return res.status(200).json({
-        apiKey: saved?.apiKey || "",
-        validation: currentValidation || { valid: false },
-        updatedAt: saved?.updatedAt || null,
-        running: saved?.running === true,
-        refreshed: !useCached && !!saved?.apiKey,
-        cached: useCached
-      });
-      
-    } catch (err) {
-      console.error("Settings error:", err);
-      return res.status(500).json({ 
-        success: false, 
-        reason: "READ_FAILED", 
-        message: err.message 
-      });
-    }
-  });
+// In your backend opayApi.js - ensure this endpoint returns the data
+router.get("/settings", async (req, res) => {
+  try {
+    const useCached = req.query.cached === "true";
+    const saved = await getSettings();
+    let currentValidation = saved?.validation || null;
+    
+    // Return the data even if validation fails
+    return res.status(200).json({
+      apiKey: saved?.apiKey || "",
+      validation: currentValidation || { valid: false },
+      updatedAt: saved?.updatedAt || null,
+      running: saved?.running === true,
+      refreshed: !useCached && !!saved?.apiKey,
+      cached: useCached
+    });
+  } catch (err) {
+    console.error("Settings error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      reason: "READ_FAILED", 
+      message: err.message 
+    });
+  }
+});
 
   // Validate API key - with caching
   router.post("/validate", async (req, res) => {

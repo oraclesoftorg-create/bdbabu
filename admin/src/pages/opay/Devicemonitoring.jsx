@@ -14,7 +14,8 @@ import {
   FaCheckCircle,
   FaTimesCircle,
   FaKey,
-  FaPlug
+  FaPlug,
+  FaArrowRight
 } from 'react-icons/fa';
 import { FiWifiOff, FiRefreshCw } from 'react-icons/fi';
 import { IoBatteryFull, IoBatteryHalf, IoBatteryDead } from 'react-icons/io5';
@@ -42,6 +43,7 @@ const DeviceMonitoring = () => {
   const [validationStatus, setValidationStatus] = useState({ valid: false });
   const [integrationRunning, setIntegrationRunning] = useState(false);
   const [hasReceivedDevices, setHasReceivedDevices] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   
   const [devices, setDevices] = useState([]);
   const [deviceStats, setDeviceStats] = useState({
@@ -64,47 +66,41 @@ const DeviceMonitoring = () => {
   // Load settings from backend
   const loadSettings = useCallback(async () => {
     try {
-      console.log('Loading Opay settings...');
+      console.log('🔄 Loading Opay settings...');
       const response = await axios.get(`${base_url}/api/opay/settings?cached=true`);
+      
+      console.log('📡 Settings response:', response.data);
       
       if (response.data) {
         const { apiKey, validation, running } = response.data;
         
-        console.log('Settings loaded:', { 
+        setApiKey(apiKey || '');
+        setValidationStatus({ valid: validation?.valid || false });
+        setIntegrationRunning(running || false);
+        setSettingsLoaded(true);
+        
+        console.log('✅ Settings loaded:', { 
           hasApiKey: !!apiKey, 
           isValid: validation?.valid, 
           running 
         });
         
-        setApiKey(apiKey || '');
-        setValidationStatus({ valid: validation?.valid || false });
-        setIntegrationRunning(running || false);
-        
         // If API key is valid and integration is running, connect socket
         if (apiKey && validation?.valid && running) {
-          console.log('API key valid, connecting socket...');
-          // Clear any existing connection
-          if (socketRef.current) {
-            socketRef.current.disconnect();
-            socketRef.current = null;
-          }
-          // Small delay to ensure state is updated
+          console.log('🔌 Conditions met, connecting socket...');
           setTimeout(() => initializeSocket(), 500);
         } else {
-          console.log('Not connecting - conditions not met:', {
-            hasApiKey: !!apiKey,
-            isValid: validation?.valid,
-            running
-          });
-          // Stop loading if no connection possible
+          console.log('⏸️ Not connecting - conditions not met');
           setIsLoading(false);
         }
       } else {
-        console.log('No settings data received');
+        console.log('❌ No settings data received');
+        setSettingsLoaded(true);
         setIsLoading(false);
       }
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      console.error('❌ Failed to load settings:', error);
+      setSettingsLoaded(true);
       setIsLoading(false);
       toast.error('Failed to load settings');
     }
@@ -171,25 +167,25 @@ const DeviceMonitoring = () => {
   const initializeSocket = useCallback(() => {
     // Check conditions
     if (!apiKey) {
-      console.log('Cannot initialize: No API key');
+      console.log('❌ Cannot initialize: No API key');
       setIsLoading(false);
       return;
     }
     
     if (!validationStatus.valid) {
-      console.log('Cannot initialize: API key invalid');
+      console.log('❌ Cannot initialize: API key invalid');
       setIsLoading(false);
       return;
     }
     
     if (!integrationRunning) {
-      console.log('Cannot initialize: Integration not running');
+      console.log('❌ Cannot initialize: Integration not running');
       setIsLoading(false);
       return;
     }
 
     if (socketRef.current?.connected) {
-      console.log('Socket already connected');
+      console.log('✅ Socket already connected');
       setIsLoading(false);
       return;
     }
@@ -201,7 +197,7 @@ const DeviceMonitoring = () => {
       clearInterval(uptimeIntervalRef.current);
     }
 
-    console.log('Initializing socket connection with API key:', apiKey.substring(0, 8) + '...');
+    console.log('🔌 Initializing socket connection...');
 
     // Create socket connection
     const socket = io("https://api.oraclepay.org", {
@@ -244,7 +240,7 @@ const DeviceMonitoring = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         if (!hasReceivedDevices) {
-          console.log('⏰ No devices received after 5 seconds, stopping loading');
+          console.log('⏰ No devices received after 5 seconds');
           setIsLoading(false);
         }
       }, 5000);
@@ -281,17 +277,6 @@ const DeviceMonitoring = () => {
         return;
       }
       
-      if (deviceList.length === 0) {
-        console.log('📭 No devices connected');
-        setDevices([]);
-        updateDeviceStats([]);
-        setHasReceivedDevices(true);
-        setIsLoading(false);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        toast.info('No devices connected', { duration: 2000 });
-        return;
-      }
-      
       const transformedDevices = deviceList.map(device => ({
         id: device.deviceId || `device-${Math.random().toString(36).substr(2, 9)}`,
         deviceId: device.deviceId,
@@ -318,8 +303,13 @@ const DeviceMonitoring = () => {
       
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       
-      console.log(`✅ Loaded ${transformedDevices.length} devices`);
-      toast.success(`Loaded ${transformedDevices.length} devices`, { duration: 1500 });
+      if (transformedDevices.length > 0) {
+        console.log(`✅ Loaded ${transformedDevices.length} devices`);
+        toast.success(`Loaded ${transformedDevices.length} devices`, { duration: 1500 });
+      } else {
+        console.log('📭 No devices connected');
+        toast.info('No devices connected', { duration: 2000 });
+      }
     });
 
     socket.on("viewer:device", (deviceUpdate) => {
@@ -334,7 +324,6 @@ const DeviceMonitoring = () => {
         const deviceIndex = prevDevices.findIndex(d => d.deviceId === deviceUpdate.deviceId);
         
         if (deviceIndex >= 0) {
-          // Update existing device
           const updatedDevices = [...prevDevices];
           const oldDevice = updatedDevices[deviceIndex];
           
@@ -354,7 +343,6 @@ const DeviceMonitoring = () => {
             model: deviceUpdate.deviceModel || oldDevice.model
           };
           
-          // Show toast for status change
           if (oldDevice.active !== deviceUpdate.active) {
             const statusText = deviceUpdate.active ? 'online' : 'offline';
             const icon = deviceUpdate.active ? '🟢' : '🔴';
@@ -367,7 +355,6 @@ const DeviceMonitoring = () => {
           updateDeviceStats(updatedDevices);
           return updatedDevices;
         } else {
-          // Add new device
           const newDevice = {
             id: deviceUpdate.deviceId,
             deviceId: deviceUpdate.deviceId,
@@ -403,15 +390,8 @@ const DeviceMonitoring = () => {
       console.error('❌ Server error:', error);
       setSocketError(error.message || 'Server error');
       setIsLoading(false);
-      
-      if (error.message?.toLowerCase().includes('invalid') || 
-          error.message?.toLowerCase().includes('expired')) {
-        setValidationStatus(prev => ({ ...prev, valid: false }));
-        toast.error('API key expired or invalid', { duration: 3000 });
-      }
     });
 
-    // Reconnection events
     socket.io.on("reconnect", (attempt) => {
       console.log(`🔄 Reconnected after ${attempt} attempts`);
       socket.emit("viewer:registerApiKey", { apiKey });
@@ -429,7 +409,6 @@ const DeviceMonitoring = () => {
       toast.error('Connection lost. Please refresh.', { duration: 3000 });
     });
 
-    // Connect the socket
     socket.connect();
   }, [apiKey, validationStatus.valid, integrationRunning, formatLastSeen, updateDeviceStats]);
 
@@ -452,7 +431,7 @@ const DeviceMonitoring = () => {
 
   // Auto-reconnect when conditions change
   useEffect(() => {
-    if (apiKey && validationStatus.valid && integrationRunning && !socketConnected) {
+    if (apiKey && validationStatus.valid && integrationRunning && !socketConnected && !socketRef.current) {
       console.log('🔄 Auto-reconnect triggered');
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = setTimeout(() => {
@@ -495,7 +474,6 @@ const DeviceMonitoring = () => {
         setIsLoading(false);
       }, 3000);
     } else {
-      setIsLoading(false);
       initializeSocket();
     }
   };
@@ -521,6 +499,29 @@ const DeviceMonitoring = () => {
     if (minutes > 0) return `${minutes}m ${secs}s`;
     return `${secs}s`;
   };
+
+  // Show loading while settings are being loaded
+  if (!settingsLoaded) {
+    return (
+      <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
+        <Header toggleSidebar={toggleSidebar} />
+        <div className="flex pt-[10vh]">
+          <Sidebar isOpen={isSidebarOpen} />
+          <main className={`transition-all duration-300 flex-1 p-4 overflow-y-auto h-[90vh] ${isSidebarOpen ? 'md:ml-[40%] lg:ml-[28%] xl:ml-[17%]' : 'ml-0'}`}>
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="inline-block p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 mb-4">
+                  <FaSync className="animate-spin text-amber-400 text-3xl" />
+                </div>
+                <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">Loading settings...</p>
+                <p className="text-[10px] text-gray-500 mt-1">Connecting to Opay API</p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
@@ -560,8 +561,11 @@ const DeviceMonitoring = () => {
                 )}
                 <span className="text-gray-600">•</span>
                 <span>{deviceStats.total} devices</span>
-                {!apiKey && (
-                  <span className="text-amber-400 text-[9px] font-bold">No API Key</span>
+                {apiKey && validationStatus.valid && integrationRunning && (
+                  <span className="text-emerald-400 text-[8px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">✓ Active</span>
+                )}
+                {(!apiKey || !validationStatus.valid || !integrationRunning) && (
+                  <span className="text-amber-400 text-[8px] font-bold bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">⚠ Setup Required</span>
                 )}
               </p>
             </div>
@@ -593,55 +597,75 @@ const DeviceMonitoring = () => {
             ))}
           </div>
 
-          {/* Error Banner */}
-          {socketError && (
+          {/* Integration Status Banner */}
+          {(!apiKey || !validationStatus.valid || !integrationRunning) ? (
+            <div className="mb-4 bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-amber-500/20 flex-shrink-0 mt-0.5">
+                  <FaExclamationTriangle className="text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                    {!apiKey ? 'No API Key Configured' : 
+                     !validationStatus.valid ? 'Invalid API Key' : 
+                     'Integration Inactive'}
+                  </h4>
+                  <p className="text-[10px] text-amber-400/70 mt-0.5">
+                    {!apiKey ? 'Go to Opay API Management to set up your API key.' : 
+                     !validationStatus.valid ? 'Please validate your API key in Opay API Management.' : 
+                     'Enable the integration in Opay API Management to start monitoring devices.'}
+                  </p>
+                  <a 
+                    href="/opayapi" 
+                    className="inline-flex items-center gap-1 mt-2 text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase border border-amber-500/20 hover:border-amber-500/40 px-3 py-1 rounded-lg transition-all"
+                  >
+                    <FaKey className="text-[10px]" /> Go to Opay API Management <FaArrowRight className="text-[8px]" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          ) : socketError ? (
             <div className="mb-4 bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl text-rose-400 text-xs flex items-center gap-2">
               <FaExclamationTriangle /> {socketError}
             </div>
-          )}
+          ) : null}
 
-          {/* Integration Warning */}
-          {(!apiKey || !validationStatus.valid || !integrationRunning) && (
-            <div className="mb-4 bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl text-amber-400 text-xs flex items-center gap-2">
-              <FaExclamationTriangle />
-              {!apiKey ? 'No API key configured. Go to Opay API Management to set up.' : 
-               !validationStatus.valid ? 'Invalid API key. Please validate it in Opay settings.' : 
-               'Integration is inactive. Enable it in Opay API Management.'}
-            </div>
-          )}
-
-          {/* Filters */}
-          <div className="bg-[#161B22] border border-gray-800/50 p-3 rounded-xl mb-4">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-[10px]" />
-                <input
-                  type="text"
-                  placeholder="Search devices..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#0F111A] border border-gray-700 text-gray-200 text-xs rounded-lg px-3 py-2 pl-8 focus:outline-none focus:border-amber-500 placeholder-gray-600"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full sm:w-32 bg-[#0F111A] border border-gray-700 text-gray-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500"
-              >
-                <option value="all">All</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-              </select>
-              {(searchQuery || statusFilter !== 'all') && (
-                <button
-                  onClick={clearFilters}
-                  className="text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase px-3 py-1.5 rounded-lg border border-amber-500/20 hover:border-amber-500/40 transition-all"
+          {/* Filters - Only show if we have devices or API is configured */}
+          {(devices.length > 0 || (apiKey && validationStatus.valid && integrationRunning)) && (
+            <div className="bg-[#161B22] border border-gray-800/50 p-3 rounded-xl mb-4">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-[10px]" />
+                  <input
+                    type="text"
+                    placeholder="Search devices..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-[#0F111A] border border-gray-700 text-gray-200 text-xs rounded-lg px-3 py-2 pl-8 focus:outline-none focus:border-amber-500 placeholder-gray-600"
+                    disabled={devices.length === 0}
+                  />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full sm:w-32 bg-[#0F111A] border border-gray-700 text-gray-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500"
+                  disabled={devices.length === 0}
                 >
-                  Clear
-                </button>
-              )}
+                  <option value="all">All</option>
+                  <option value="online">Online</option>
+                  <option value="offline">Offline</option>
+                </select>
+                {(searchQuery || statusFilter !== 'all') && (
+                  <button
+                    onClick={clearFilters}
+                    className="text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase px-3 py-1.5 rounded-lg border border-amber-500/20 hover:border-amber-500/40 transition-all"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Device List */}
           <div className="bg-[#161B22] border border-gray-800/50 rounded-xl overflow-hidden">
@@ -656,28 +680,22 @@ const DeviceMonitoring = () => {
                   <p className="text-[9px] text-emerald-400 mt-1">✓ Socket connected, waiting for devices...</p>
                 )}
               </div>
-            ) : filteredDevices.length === 0 ? (
+            ) : devices.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-4xl mb-3">{devices.length === 0 ? '📱' : '🔍'}</div>
-                <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">
-                  {devices.length === 0 ? 'No devices connected' : 'No devices match your search'}
-                </p>
+                <div className="text-4xl mb-3">📱</div>
+                <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">No devices connected</p>
                 <p className="text-[10px] text-gray-500 mt-1.5">
-                  {devices.length === 0 
-                    ? (socketConnected 
-                        ? 'Devices will appear here when they connect to the monitoring server' 
-                        : 'Connect to monitoring to see devices')
-                    : 'Try adjusting your search criteria'}
+                  {!apiKey || !validationStatus.valid || !integrationRunning ? (
+                    <>
+                      <span className="text-amber-400">⚠</span> Please set up your API key and enable integration in Opay API Management
+                    </>
+                  ) : socketConnected ? (
+                    'Devices will appear here when they connect to the monitoring server'
+                  ) : (
+                    'Connect to monitoring to see devices'
+                  )}
                 </p>
-                {devices.length === 0 && socketConnected && (
-                  <button
-                    onClick={handleRefresh}
-                    className="mt-4 text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase border border-amber-500/20 hover:border-amber-500/40 px-4 py-1.5 rounded-lg transition-all"
-                  >
-                    <FaSync className="inline mr-1" /> Refresh
-                  </button>
-                )}
-                {!socketConnected && apiKey && validationStatus.valid && (
+                {apiKey && validationStatus.valid && integrationRunning && !socketConnected && (
                   <button
                     onClick={() => initializeSocket()}
                     className="mt-4 text-[9px] text-emerald-400 hover:text-emerald-300 font-bold uppercase border border-emerald-500/20 hover:border-emerald-500/40 px-4 py-1.5 rounded-lg transition-all"
@@ -685,6 +703,26 @@ const DeviceMonitoring = () => {
                     <FaWifi className="inline mr-1" /> Connect Now
                   </button>
                 )}
+                {(!apiKey || !validationStatus.valid || !integrationRunning) && (
+                  <a 
+                    href="/opayapi"
+                    className="inline-flex items-center gap-1 mt-4 text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase border border-amber-500/20 hover:border-amber-500/40 px-4 py-1.5 rounded-lg transition-all"
+                  >
+                    <FaKey className="text-[10px]" /> Go to Settings
+                  </a>
+                )}
+              </div>
+            ) : filteredDevices.length === 0 ? (
+              <div className="p-8 text-center">
+                <div className="text-3xl mb-2">🔍</div>
+                <p className="text-sm font-bold text-gray-400 uppercase tracking-wider">No devices match your search</p>
+                <p className="text-[10px] text-gray-500 mt-1.5">Try adjusting your search criteria</p>
+                <button
+                  onClick={clearFilters}
+                  className="mt-3 text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase border border-amber-500/20 hover:border-amber-500/40 px-4 py-1.5 rounded-lg transition-all"
+                >
+                  Clear Filters
+                </button>
               </div>
             ) : (
               <div className="divide-y divide-gray-800/50">
@@ -735,17 +773,18 @@ const DeviceMonitoring = () => {
           </div>
 
           {/* Footer */}
-          <div className="mt-4 text-center text-[8px] text-gray-600 uppercase tracking-wider border-t border-gray-800/50 pt-4 flex items-center justify-center gap-4">
-            <span>{socketConnected ? '🟢 Live data' : '🔴 Disconnected'}</span>
+          <div className="mt-4 text-center text-[8px] text-gray-600 uppercase tracking-wider border-t border-gray-800/50 pt-4 flex items-center justify-center gap-4 flex-wrap">
+            <span className="flex items-center gap-1">
+              {socketConnected ? '🟢 Live data' : '🔴 Disconnected'}
+            </span>
             <span>•</span>
             <span>{deviceStats.total} devices</span>
             <span>•</span>
             <span>{connectionStats.messageCount} updates</span>
-            {hasReceivedDevices && socketConnected && (
-              <span className="text-emerald-400">✓ Ready</span>
-            )}
             {apiKey && validationStatus.valid && integrationRunning && (
-              <span className="text-[8px] text-gray-500">🔑 {apiKey.substring(0, 4)}...{apiKey.substring(apiKey.length - 4)}</span>
+              <span className="text-[8px] text-gray-500 flex items-center gap-1">
+                🔑 {apiKey.substring(0, 6)}...{apiKey.substring(apiKey.length - 4)}
+              </span>
             )}
           </div>
 
