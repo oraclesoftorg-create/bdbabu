@@ -26,11 +26,6 @@ const OTP_CONFIG = {
     RESEND_COOLDOWN_SECONDS: 60
 };
 
-// Helper function to generate OTP
-function generateOTP(length = OTP_CONFIG.CODE_LENGTH) {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
 // Helper function to format phone number for storage and API
 function formatBangladeshPhone(phone) {
     if (!phone) return null;
@@ -61,20 +56,10 @@ function formatBangladeshPhone(phone) {
     return null;
 }
 
-// Helper function to format phone for display
-function formatPhoneForDisplay(phone) {
-    if (!phone) return null;
-    let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('880')) {
-        cleaned = cleaned.substring(3);
-    }
-    return cleaned;
-}
-
 // Helper function to send SMS via the O-SMS API
-async function sendSMS(phoneNumber, message) {
+// IMPORTANT: The API generates its own OTP and returns it in the response
+async function sendSMS(phoneNumber) {
     try {
-        // Remove any + sign and ensure it's in the correct format
         let apiPhone = phoneNumber.replace(/\D/g, '');
         if (!apiPhone.startsWith('880')) {
             if (apiPhone.startsWith('1')) {
@@ -102,10 +87,11 @@ async function sendSMS(phoneNumber, message) {
         console.log('SMS API Response:', response.data);
 
         if (response.data && response.data.success === true) {
+            // The API returns the OTP in the response - use this!
             return { 
                 success: true, 
                 data: response.data,
-                otp: response.data.otp
+                otp: response.data.otp // This is the OTP the API generated and sent
             };
         } else {
             console.error('SMS sending failed:', response.data);
@@ -123,7 +109,7 @@ async function sendSMS(phoneNumber, message) {
     }
 }
 
-// Helper function to send single SMS
+// Helper function to send single SMS (for non-OTP messages)
 async function sendSingleSMS(phoneNumber, message) {
     try {
         let apiPhone = phoneNumber.replace(/\D/g, '');
@@ -247,7 +233,6 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             });
         }
 
-        // Format phone number for storage (without +88)
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -257,7 +242,6 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             });
         }
 
-        // Check if phone is already registered (using the formatted phone without +)
         const existingUser = await User.findOne({ phone: formattedPhone });
         if (existingUser) {
             return res.status(400).json({
@@ -266,43 +250,37 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
             });
         }
 
-        // Generate OTP
-        const otpCode = generateOTP();
-        
-        // Calculate expiry time
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        // Store OTP in memory using the formatted phone as key
-        global.otpStore = global.otpStore || {};
-        
-        global.otpStore[formattedPhone] = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            attempts: 0,
-            purpose: 'signup',
-            createdAt: new Date()
-        };
-
-        console.log(`OTP stored for ${formattedPhone}: ${otpCode}`);
-
-        // Send SMS
-        const message = `আপনার ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP sent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
-            });
-        }
+        // Send SMS - the API will generate and send the OTP
+        const smsResult = await sendSMS(formattedPhone);
 
         if (smsResult.success) {
+            // IMPORTANT: Store the OTP that the API returned
+            const otpCode = smsResult.otp;
+            const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+            
+            global.otpStore = global.otpStore || {};
+            global.otpStore[formattedPhone] = {
+                code: otpCode,
+                expiresAt: expiresAt,
+                attempts: 0,
+                purpose: 'signup',
+                createdAt: new Date()
+            };
+
+            console.log(`OTP stored for ${formattedPhone}: ${otpCode}`);
+
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    message: 'OTP sent successfully (Development Mode)',
+                    data: {
+                        otp: otpCode,
+                        expiresAt: expiresAt,
+                        phone: formattedPhone
+                    }
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'OTP sent successfully. Please check your phone.',
@@ -312,15 +290,10 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 }
             });
         } else {
-            console.error('SMS sending failed but OTP saved:', smsResult.error);
-            res.json({
-                success: true,
-                message: 'OTP generated but SMS delivery failed. Please try again or use development mode.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: formattedPhone,
-                    devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
-                }
+            console.error('SMS sending failed:', smsResult.error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to send OTP. Please try again.'
             });
         }
 
@@ -345,7 +318,6 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             });
         }
 
-        // Format phone number
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -355,7 +327,6 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             });
         }
 
-        // Check OTP from store - using formatted phone as key
         global.otpStore = global.otpStore || {};
         const storedOTP = global.otpStore[formattedPhone];
 
@@ -386,7 +357,6 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             });
         }
 
-        // Track attempts
         storedOTP.attempts = (storedOTP.attempts || 0) + 1;
         
         if (storedOTP.attempts > OTP_CONFIG.MAX_ATTEMPTS) {
@@ -408,7 +378,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
         // Clear OTP after successful verification
         delete global.otpStore[formattedPhone];
 
-        // Now create the user
+        // Create the user
         const { username, password, confirmPassword, fullName, email, referralCode, affiliateCode } = userData;
         const ipAddress = req.ip || req.connection.remoteAddress;
         const userAgent = req.get('User-Agent') || 'unknown';
@@ -705,35 +675,35 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
             }
         }
 
-        // Generate new OTP
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        global.otpStore[formattedPhone] = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            attempts: 0,
-            purpose: 'signup',
-            createdAt: new Date()
-        };
-
-        const message = `আপনার নতুন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour new verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-        
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP resent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
-            });
-        }
+        // Send SMS - API will generate new OTP
+        const smsResult = await sendSMS(formattedPhone);
 
         if (smsResult.success) {
+            const otpCode = smsResult.otp;
+            const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+            global.otpStore[formattedPhone] = {
+                code: otpCode,
+                expiresAt: expiresAt,
+                attempts: 0,
+                purpose: 'signup',
+                createdAt: new Date()
+            };
+
+            console.log(`OTP resent and stored for ${formattedPhone}: ${otpCode}`);
+
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    message: 'OTP resent successfully (Development Mode)',
+                    data: {
+                        otp: otpCode,
+                        expiresAt: expiresAt,
+                        phone: formattedPhone
+                    }
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'OTP resent successfully. Please check your phone.',
@@ -743,13 +713,10 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
                 }
             });
         } else {
-            res.json({
-                success: true,
-                message: 'OTP regenerated but SMS delivery failed. Please try again.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
+            console.error('SMS resend failed:', smsResult.error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to resend OTP. Please try again.'
             });
         }
 
@@ -761,8 +728,6 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
         });
     }
 });
-
-// ==================== LOGIN ROUTES ====================
 
 // Request OTP for login
 Authrouter.post("/request-login-otp", async (req, res) => {
@@ -794,35 +759,38 @@ Authrouter.post("/request-login-otp", async (req, res) => {
             });
         }
 
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        user.otp = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            purpose: 'login',
-            verified: false
-        };
-        
-        await user.save();
-
-        const message = `আপনার লগইন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour login verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP sent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
-            });
-        }
+        // Send SMS - API will generate OTP
+        const smsResult = await sendSMS(formattedPhone);
 
         if (smsResult.success) {
+            const otpCode = smsResult.otp;
+            const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+            user.otp = {
+                code: otpCode,
+                expiresAt: expiresAt,
+                purpose: 'login',
+                verified: false,
+                attempts: 0,
+                createdAt: new Date()
+            };
+            
+            await user.save();
+
+            console.log(`Login OTP stored for ${formattedPhone}: ${otpCode}`);
+
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    message: 'OTP sent successfully (Development Mode)',
+                    data: {
+                        otp: otpCode,
+                        expiresAt: expiresAt,
+                        phone: formattedPhone
+                    }
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'OTP sent successfully. Please check your phone.',
@@ -832,14 +800,10 @@ Authrouter.post("/request-login-otp", async (req, res) => {
                 }
             });
         } else {
-            console.error('SMS sending failed but OTP saved:', smsResult.error);
-            res.json({
-                success: true,
-                message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
+            console.error('SMS sending failed:', smsResult.error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to send OTP. Please try again.'
             });
         }
 
@@ -889,7 +853,20 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
             });
         }
 
+        user.otp.attempts = (user.otp.attempts || 0) + 1;
+
+        if (user.otp.attempts > OTP_CONFIG.MAX_ATTEMPTS) {
+            user.otp = undefined;
+            await user.save();
+            return res.status(400).json({
+                success: false,
+                message: "Too many failed attempts. Please request a new OTP."
+            });
+        }
+
         if (new Date() > new Date(user.otp.expiresAt)) {
+            user.otp = undefined;
+            await user.save();
             return res.status(400).json({
                 success: false,
                 message: "OTP has expired. Please request a new one."
@@ -897,9 +874,10 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
         }
 
         if (user.otp.code !== otp.toString()) {
+            await user.save();
             return res.status(400).json({
                 success: false,
-                message: "Invalid OTP. Please try again."
+                message: `Invalid OTP. ${OTP_CONFIG.MAX_ATTEMPTS - user.otp.attempts} attempts remaining.`
             });
         }
 
@@ -968,8 +946,6 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
     }
 });
 
-// ==================== PASSWORD RESET ROUTES ====================
-
 // Request OTP for password reset
 Authrouter.post("/forgot-password/request-otp", async (req, res) => {
     try {
@@ -1000,37 +976,38 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
             });
         }
 
-        const otpCode = generateOTP();
-        const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
-
-        user.otp = {
-            code: otpCode,
-            expiresAt: expiresAt,
-            purpose: 'password_reset',
-            verified: false,
-            attempts: 0,
-            createdAt: new Date()
-        };
-        
-        await user.save();
-
-        const message = `আপনার পাসওয়ার্ড রিসেট কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour password reset code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
-
-        const smsResult = await sendSMS(formattedPhone, message);
-
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({
-                success: true,
-                message: 'OTP sent successfully (Development Mode)',
-                data: {
-                    otp: otpCode,
-                    expiresAt: expiresAt,
-                    phone: formattedPhone
-                }
-            });
-        }
+        // Send SMS - API will generate OTP
+        const smsResult = await sendSMS(formattedPhone);
 
         if (smsResult.success) {
+            const otpCode = smsResult.otp;
+            const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+            user.otp = {
+                code: otpCode,
+                expiresAt: expiresAt,
+                purpose: 'password_reset',
+                verified: false,
+                attempts: 0,
+                createdAt: new Date()
+            };
+            
+            await user.save();
+
+            console.log(`Password reset OTP stored for ${formattedPhone}: ${otpCode}`);
+
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    message: 'OTP sent successfully (Development Mode)',
+                    data: {
+                        otp: otpCode,
+                        expiresAt: expiresAt,
+                        phone: formattedPhone
+                    }
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'OTP sent successfully. Please check your phone.',
@@ -1040,15 +1017,10 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 }
             });
         } else {
-            console.error('SMS sending failed but OTP saved:', smsResult.error);
-            res.json({
-                success: true,
-                message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
-                data: {
-                    expiresAt: expiresAt,
-                    phone: formattedPhone,
-                    devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
-                }
+            console.error('SMS sending failed:', smsResult.error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to send OTP. Please try again.'
             });
         }
 
@@ -1245,6 +1217,103 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
 
     } catch (error) {
         console.error("Reset password error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+
+// Resend OTP for password reset
+Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({
+                success: false,
+                message: "Phone number is required"
+            });
+        }
+
+        const formattedPhone = formatBangladeshPhone(phone);
+        
+        if (!formattedPhone) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Bangladeshi phone number"
+            });
+        }
+
+        const user = await User.findOne({ phone: formattedPhone });
+
+        if (!user) {
+            return res.json({
+                success: true,
+                message: "If this phone number is registered, you will receive an OTP"
+            });
+        }
+
+        // Check cooldown
+        if (user.otp && user.otp.createdAt) {
+            const timeSinceLastRequest = (new Date() - new Date(user.otp.createdAt)) / 1000;
+            if (timeSinceLastRequest < OTP_CONFIG.RESEND_COOLDOWN_SECONDS) {
+                const waitSeconds = Math.ceil(OTP_CONFIG.RESEND_COOLDOWN_SECONDS - timeSinceLastRequest);
+                return res.status(429).json({
+                    success: false,
+                    message: `Please wait ${waitSeconds} seconds before requesting a new OTP`
+                });
+            }
+        }
+
+        // Send SMS - API will generate new OTP
+        const smsResult = await sendSMS(formattedPhone);
+
+        if (smsResult.success) {
+            const otpCode = smsResult.otp;
+            const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
+
+            user.otp = {
+                code: otpCode,
+                expiresAt: expiresAt,
+                purpose: 'password_reset',
+                verified: false,
+                attempts: 0,
+                createdAt: new Date()
+            };
+            
+            await user.save();
+
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    message: 'OTP resent successfully (Development Mode)',
+                    data: {
+                        otp: otpCode,
+                        expiresAt: expiresAt,
+                        phone: formattedPhone
+                    }
+                });
+            }
+
+            res.json({
+                success: true,
+                message: 'OTP resent successfully. Please check your phone.',
+                data: {
+                    expiresAt: expiresAt,
+                    phone: formattedPhone
+                }
+            });
+        } else {
+            console.error('SMS resend failed:', smsResult.error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to resend OTP. Please try again.'
+            });
+        }
+
+    } catch (error) {
+        console.error("Resend password reset OTP error:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error"
