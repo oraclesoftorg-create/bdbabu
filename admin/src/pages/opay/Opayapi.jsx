@@ -4,15 +4,15 @@ import {
   FaToggleOn, FaToggleOff, FaCheckCircle, 
   FaTimesCircle, FaCalendarAlt, FaGlobe, 
   FaUsers, FaMobileAlt, FaHistory, FaPlug,
-  FaSave, FaEdit, FaTrash, FaUndo
+  FaSave, FaEdit, FaTrash, FaUndo, FaExclamationTriangle,
+  FaShieldAlt, FaLock, FaUnlock, FaServer, FaClock
 } from 'react-icons/fa';
-import { FiChevronRight } from 'react-icons/fi';
+import { FiChevronRight, FiRefreshCw } from 'react-icons/fi';
 import { MdTimer, MdDomain } from 'react-icons/md';
 import Header from '../../components/Header';
 import Sidebar from '../../components/Sidebar';
 import axios from 'axios';
 import toast, { Toaster } from 'react-hot-toast';
-import { FiRefreshCw } from "react-icons/fi";
 
 const Opayapi = () => {
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
@@ -26,12 +26,25 @@ const Opayapi = () => {
   const [runningUpdating, setRunningUpdating] = useState(false);
   
   // API Key states
-  const [currentApiKey, setCurrentApiKey] = useState(''); // Currently displayed/saved key
-  const [newApiKey, setNewApiKey] = useState(''); // New key being entered for update
-  const [originalApiKey, setOriginalApiKey] = useState(''); // Last successfully validated key
-  const [isUpdating, setIsUpdating] = useState(false); // Whether in update mode
+  const [currentApiKey, setCurrentApiKey] = useState('');
+  const [newApiKey, setNewApiKey] = useState('');
+  const [originalApiKey, setOriginalApiKey] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isKeyVisible, setIsKeyVisible] = useState(false);
+  
+  // Domain states
+  const [allowedDomains, setAllowedDomains] = useState([]);
+  const [primaryDomain, setPrimaryDomain] = useState('');
+  const [domainMismatch, setDomainMismatch] = useState(false);
+  
+  // Device states
+  const [deviceStatus, setDeviceStatus] = useState({
+    online: false,
+    count: 0,
+    lastCheck: null
+  });
   
   const [subscriptionData, setSubscriptionData] = useState({
     days: 0,
@@ -47,7 +60,10 @@ const Opayapi = () => {
     endDate: "N/A",
     latestEndDate: "N/A",
     expireDate: "No subscription",
-    subscriptionId: ""
+    subscriptionId: "",
+    packageName: "",
+    maxDevices: 0,
+    maxNumbers: 0
   });
 
   const toggleSidebar = () => {
@@ -72,13 +88,41 @@ const Opayapi = () => {
         if (apiKey) {
           setCurrentApiKey(apiKey);
           setOriginalApiKey(apiKey);
-          setNewApiKey(''); // Clear new key input
+          setNewApiKey('');
           setIsUpdating(false);
           setHasChanges(false);
         }
         
         if (validation) {
           updateSubscriptionData(validation);
+          
+          // Check domain mismatch
+          if (validation.reason === 'DOMAIN_MISMATCH') {
+            setDomainMismatch(true);
+            setValidationError('Domain mismatch: Your domain is not whitelisted');
+          } else {
+            setDomainMismatch(false);
+            if (validation.valid) {
+              setValidationError(null);
+            }
+          }
+          
+          // Update allowed domains
+          if (validation.domains) {
+            setAllowedDomains(validation.domains);
+          }
+          if (validation.primaryDomain) {
+            setPrimaryDomain(validation.primaryDomain);
+          }
+          
+          // Update device status
+          if (validation.deviceCount !== undefined) {
+            setDeviceStatus(prev => ({
+              ...prev,
+              count: validation.deviceCount,
+              lastCheck: new Date()
+            }));
+          }
         } else {
           resetSubscriptionData();
         }
@@ -93,7 +137,8 @@ const Opayapi = () => {
               valid: validation.valid || false,
               reason: validation.reason || (validation.valid ? 'Valid' : 'Invalid'),
               deviceCount: validation.deviceCount || 0,
-              activeNumberCount: validation.activeNumberCount || 0
+              activeNumberCount: validation.activeNumberCount || 0,
+              domainMatch: !domainMismatch
             },
             ...prev.slice(0, 4)
           ]);
@@ -105,7 +150,7 @@ const Opayapi = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [base_url]);
+  }, [base_url, domainMismatch]);
 
   const resetSubscriptionData = () => {
     setSubscriptionData({
@@ -122,7 +167,10 @@ const Opayapi = () => {
       endDate: "N/A",
       latestEndDate: "N/A",
       expireDate: "No subscription",
-      subscriptionId: ""
+      subscriptionId: "",
+      packageName: "",
+      maxDevices: 0,
+      maxNumbers: 0
     });
   };
 
@@ -157,15 +205,18 @@ const Opayapi = () => {
       minutes: timeUntilExpiry.minutes,
       seconds: timeUntilExpiry.seconds,
       isValid: validation.valid || false,
-      plan: validation.plan?.name || 'Standard Plan',
-      primaryDomain: validation.primaryDomain || 'No domain',
+      plan: validation.plan?.name || validation.packageName || 'Standard Plan',
+      primaryDomain: validation.primaryDomain || validation.primary_domain || 'No domain',
       domains: validation.domains || [],
-      activeCount: validation.activeNumberCount || 0,
-      deviceCount: validation.deviceCount || 0,
-      endDate: formatDate(validation.endDate),
-      latestEndDate: formatDate(validation.latestEndDate),
-      expireDate: formatTimeDifference(validation.endDate),
-      subscriptionId: validation.subscriptionId || ''
+      activeCount: validation.activeNumberCount || validation.active_numbers || 0,
+      deviceCount: validation.deviceCount || validation.device_count || 0,
+      endDate: formatDate(validation.endDate || validation.end_date),
+      latestEndDate: formatDate(validation.latestEndDate || validation.latest_end_date),
+      expireDate: formatTimeDifference(validation.endDate || validation.end_date),
+      subscriptionId: validation.subscriptionId || validation.subscription_id || '',
+      packageName: validation.packageName || validation.package_name || '',
+      maxDevices: validation.maxDevices || validation.max_devices || 0,
+      maxNumbers: validation.maxNumbers || validation.max_numbers || 0
     });
   }, [calculateTimeUntilExpiration]);
 
@@ -210,6 +261,7 @@ const Opayapi = () => {
 
     setIsValidating(true);
     setValidationError(null);
+    setDomainMismatch(false);
 
     try {
       const response = await axios.post(`${base_url}/api/opay/validate`, { apiKey: keyToValidate });
@@ -219,25 +271,53 @@ const Opayapi = () => {
         
         updateSubscriptionData(response.data);
         
+        // Check for domain mismatch
+        if (response.data.reason === 'DOMAIN_MISMATCH') {
+          setDomainMismatch(true);
+          setValidationError('Domain mismatch: Your domain is not whitelisted for this API key');
+        } else if (isValid) {
+          setValidationError(null);
+        } else {
+          setValidationError(response.data.message || 'Validation failed');
+        }
+        
+        // Update domains
+        if (response.data.domains) {
+          setAllowedDomains(response.data.domains);
+        }
+        if (response.data.primaryDomain) {
+          setPrimaryDomain(response.data.primaryDomain);
+        }
+        
+        // Update device status
+        if (response.data.deviceCount !== undefined) {
+          setDeviceStatus(prev => ({
+            ...prev,
+            count: response.data.deviceCount,
+            lastCheck: new Date(),
+            online: response.data.deviceOnline || false
+          }));
+        }
+        
         setValidationHistory(prev => [
           {
             timestamp: new Date().toLocaleString(),
             valid: isValid,
             reason: response.data.reason || (isValid ? 'Valid' : 'Invalid'),
             deviceCount: response.data.deviceCount || 0,
-            activeNumberCount: response.data.activeNumberCount || 0
+            activeNumberCount: response.data.activeNumberCount || 0,
+            domainMatch: response.data.reason !== 'DOMAIN_MISMATCH'
           },
           ...prev.slice(0, 4)
         ]);
 
-        if (isValid) {
+        if (isValid && response.data.reason !== 'DOMAIN_MISMATCH') {
           if (showToast) {
             toast.success('API Key validated successfully');
           }
           return true;
         } else {
           const errorMsg = response.data.message || 'Validation failed';
-          setValidationError(errorMsg);
           if (showToast) {
             toast.error(errorMsg);
           }
@@ -293,8 +373,9 @@ const Opayapi = () => {
 
   const handleUpdateClick = () => {
     setIsUpdating(true);
-    setNewApiKey(''); // Clear new key input
+    setNewApiKey('');
     setValidationError(null);
+    setDomainMismatch(false);
   };
 
   const handleCancelUpdate = () => {
@@ -302,13 +383,14 @@ const Opayapi = () => {
     setNewApiKey('');
     setValidationError(null);
     setHasChanges(false);
+    setDomainMismatch(false);
   };
 
   const handleNewKeyChange = (e) => {
     setNewApiKey(e.target.value);
     setHasChanges(true);
-    // Clear validation error when typing
     if (validationError) setValidationError(null);
+    if (domainMismatch) setDomainMismatch(false);
   };
 
   const handleSaveNewKey = async () => {
@@ -317,19 +399,15 @@ const Opayapi = () => {
       return;
     }
 
-    // Validate the new key
     const isValid = await validateApiKey(newApiKey, true);
     
     if (isValid) {
-      // Update successful
       setCurrentApiKey(newApiKey);
       setOriginalApiKey(newApiKey);
       setIsUpdating(false);
       setNewApiKey('');
       setHasChanges(false);
       toast.success('API Key updated successfully');
-      
-      // Refresh settings to get latest data
       await loadSettings(false);
     }
   };
@@ -348,6 +426,10 @@ const Opayapi = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const toggleKeyVisibility = () => {
+    setIsKeyVisible(!isKeyVisible);
   };
 
   useEffect(() => {
@@ -403,6 +485,7 @@ const Opayapi = () => {
 
   const getStatusColor = () => {
     if (isValidating) return 'border-amber-500 bg-amber-500/10';
+    if (domainMismatch) return 'border-rose-500 bg-rose-500/10';
     if (subscriptionData.isValid) return 'border-emerald-500 bg-emerald-500/10';
     if (validationError) return 'border-rose-500 bg-rose-500/10';
     return 'border-gray-700 bg-[#0F111A]';
@@ -410,6 +493,7 @@ const Opayapi = () => {
 
   const getStatusText = () => {
     if (isValidating) return 'Validating...';
+    if (domainMismatch) return 'Domain Mismatch';
     if (subscriptionData.isValid) return 'Valid';
     if (validationError) return 'Invalid';
     return 'Not Validated';
@@ -417,14 +501,15 @@ const Opayapi = () => {
 
   const getStatusIcon = () => {
     if (isValidating) return <FaSync className="animate-spin text-amber-400" />;
+    if (domainMismatch) return <FaExclamationTriangle className="text-rose-400" />;
     if (subscriptionData.isValid) return <FaCheckCircle className="text-emerald-400" />;
     return <FaTimesCircle className="text-rose-400" />;
   };
 
-  // Mask API key for display
   const maskApiKey = (key) => {
     if (!key) return '';
     if (key.length <= 8) return key;
+    if (isKeyVisible) return key;
     return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
   };
 
@@ -443,7 +528,7 @@ const Opayapi = () => {
             <div>
               <h1 className="text-2xl font-semibold text-white tracking-tighter uppercase">Opay API Management</h1>
               <p className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-2">
-                <FaKey className="text-amber-500" /> Manage API keys and monitor subscription status
+                <FaShieldAlt className="text-amber-500" /> Secure API Key Management & Validation
                 {lastUpdated && (
                   <span className="text-gray-600">• Last updated: {lastUpdated}</span>
                 )}
@@ -452,13 +537,13 @@ const Opayapi = () => {
             <div className="flex gap-3 mt-4 md:mt-0">
               <button
                 onClick={toggleRunning}
-                disabled={runningUpdating || !subscriptionData.isValid}
+                disabled={runningUpdating || !subscriptionData.isValid || domainMismatch}
                 className={`px-5 py-2 rounded font-bold text-xs transition-all flex items-center gap-2 ${
                   running
                     ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-600/30'
                     : 'bg-[#1F2937] border border-gray-700 text-gray-400 hover:border-amber-500/40 hover:text-amber-400'
-                } ${(runningUpdating || !subscriptionData.isValid) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={!subscriptionData.isValid ? 'Valid API key required' : ''}
+                } ${(runningUpdating || !subscriptionData.isValid || domainMismatch) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={!subscriptionData.isValid ? 'Valid API key required' : domainMismatch ? 'Domain mismatch - fix domain whitelist' : ''}
               >
                 {running ? <FaToggleOn className="text-emerald-400" /> : <FaToggleOff />}
                 {running ? 'ACTIVE' : 'INACTIVE'}
@@ -501,7 +586,7 @@ const Opayapi = () => {
                   className={`px-5 py-2 rounded font-bold text-xs transition-all flex items-center gap-2 ${
                     isValidating
                       ? 'bg-amber-500/20 text-amber-400 cursor-wait'
-                      : subscriptionData.isValid
+                      : subscriptionData.isValid && !domainMismatch
                       ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
                       : 'bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-600/30'
                   } ${!currentApiKey ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -531,6 +616,14 @@ const Opayapi = () => {
                     {maskApiKey(currentApiKey) || 'No API key configured'}
                   </div>
                   <button
+                    onClick={toggleKeyVisibility}
+                    disabled={!currentApiKey}
+                    className="bg-[#1C2128] hover:bg-gray-700 text-gray-400 px-3 py-3 border border-l-0 border-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={isKeyVisible ? 'Hide key' : 'Show key'}
+                  >
+                    {isKeyVisible ? <FaLock /> : <FaUnlock />}
+                  </button>
+                  <button
                     onClick={() => copyToClipboard(currentApiKey)}
                     disabled={!currentApiKey}
                     className="bg-[#1C2128] hover:bg-gray-700 text-gray-400 px-4 py-3 rounded-r-lg border border-l-0 border-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -551,17 +644,52 @@ const Opayapi = () => {
                 <div className="flex items-center">
                   {getStatusIcon()}
                   <span className="ml-2 text-xs font-bold uppercase tracking-wider">{getStatusText()}</span>
+                  {domainMismatch && (
+                    <span className="ml-2 text-[9px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                      Fix domain whitelist
+                    </span>
+                  )}
                 </div>
                 <div className="text-[10px] text-gray-400">
-                  {validationError || (subscriptionData.isValid ? '✓ Ready for use' : 'Validate API key to check status')}
+                  {domainMismatch ? 'Domain not whitelisted for this API key' : 
+                   validationError || (subscriptionData.isValid ? '✓ Ready for use' : 'Validate API key to check status')}
                 </div>
               </div>
+
+              {/* Domain Info */}
+              {allowedDomains.length > 0 && (
+                <div className="p-3 bg-[#0F111A] rounded-lg border border-gray-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MdDomain className="text-amber-400" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Allowed Domains</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {allowedDomains.map((domain, index) => (
+                      <span 
+                        key={index} 
+                        className={`px-2 py-1 rounded text-[9px] font-mono ${
+                          domain === primaryDomain 
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' 
+                            : 'bg-gray-700/30 text-gray-400 border border-gray-700'
+                        }`}
+                      >
+                        {domain} {domain === primaryDomain && '(Primary)'}
+                      </span>
+                    ))}
+                  </div>
+                  {primaryDomain && (
+                    <p className="mt-2 text-[9px] text-gray-500">
+                      Primary domain: <span className="text-amber-400">{primaryDomain}</span>
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Update API Key Section - Only shown when updating */}
+          {/* Update API Key Section */}
           {isUpdating && (
-            <div className="bg-[#161B22] border border-amber-500/30 rounded-lg p-6 mb-6 shadow-lg">
+            <div className="bg-[#161B22] border border-amber-500/30 rounded-lg p-6 mb-6 shadow-lg animate-pulse-once">
               <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
                 <div className="flex items-center mb-4 md:mb-0">
                   <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 mr-3">
@@ -610,7 +738,7 @@ const Opayapi = () => {
                     New API Key <span className="text-rose-400">*</span>
                   </label>
                   <input
-                    type="text"
+                    type={isKeyVisible ? "text" : "password"}
                     value={newApiKey}
                     onChange={handleNewKeyChange}
                     placeholder="Enter your new Opay API Key"
@@ -618,19 +746,19 @@ const Opayapi = () => {
                     autoFocus
                   />
                   {hasChanges && (
-                    <p className="mt-2 text-[10px] text-amber-400">
-                      ⚠️ Click "Save New Key" to validate and save this API key
+                    <p className="mt-2 text-[10px] text-amber-400 flex items-center gap-1">
+                      <FaExclamationTriangle className="text-amber-400" />
+                      Click "Save New Key" to validate and save this API key
                     </p>
                   )}
                 </div>
                 
-                {/* Warning message */}
                 <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
                   <p className="text-[10px] text-amber-400 flex items-center gap-2">
                     <FaEdit className="text-amber-400" />
                     <span className="uppercase font-bold">
                       Important: Updating the API key will immediately switch to the new key. 
-                      Make sure the new key is valid and has the correct permissions.
+                      Make sure the new key is valid and has the correct domain whitelist.
                     </span>
                   </p>
                 </div>
@@ -638,10 +766,10 @@ const Opayapi = () => {
             </div>
           )}
 
-          {/* Stats Grid - Only show if there's valid subscription data */}
+          {/* Stats Grid */}
           {subscriptionData.isValid && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-[#161B22] border border-gray-800 rounded-lg p-5 shadow-lg">
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
@@ -650,6 +778,9 @@ const Opayapi = () => {
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Devices</p>
                       <p className="text-2xl font-bold text-white mt-1">{subscriptionData.deviceCount}</p>
+                      {subscriptionData.maxDevices > 0 && (
+                        <p className="text-[9px] text-gray-500">Max: {subscriptionData.maxDevices}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -662,6 +793,9 @@ const Opayapi = () => {
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Active Numbers</p>
                       <p className="text-2xl font-bold text-white mt-1">{subscriptionData.activeCount}</p>
+                      {subscriptionData.maxNumbers > 0 && (
+                        <p className="text-[9px] text-gray-500">Max: {subscriptionData.maxNumbers}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -677,11 +811,26 @@ const Opayapi = () => {
                     </div>
                   </div>
                 </div>
+
+                <div className="bg-[#161B22] border border-gray-800 rounded-lg p-5 shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                      <FaClock className="text-xl text-amber-400" />
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Status</p>
+                      <p className={`text-sm font-bold mt-1 ${
+                        running ? 'text-emerald-400' : 'text-gray-400'
+                      }`}>
+                        {running ? 'Running' : 'Stopped'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Subscription Details */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {/* Subscription Info */}
                 <div className="bg-[#161B22] border border-gray-800 rounded-lg p-6 shadow-lg">
                   <div className="flex items-center gap-3 mb-5">
                     <div className="w-1 h-4 bg-amber-500"></div>
@@ -696,32 +845,36 @@ const Opayapi = () => {
                       </span>
                     </div>
                     
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Primary Domain</label>
-                        <p className="text-xs text-gray-300 bg-[#0F111A] p-2 rounded border border-gray-800">{subscriptionData.primaryDomain || 'No domain set'}</p>
+                    {subscriptionData.packageName && (
+                      <div className="flex items-center justify-between p-3 bg-[#0F111A] rounded-lg border border-gray-800">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Package</span>
+                        <span className="text-xs text-gray-300">{subscriptionData.packageName}</span>
                       </div>
-                      
-                      <div>
-                        <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">All Domains</label>
-                        <div className="space-y-1 bg-[#0F111A] p-2 rounded border border-gray-800">
-                          {subscriptionData.domains.length > 0 ? (
-                            subscriptionData.domains.map((domain, index) => (
-                              <div key={index} className="flex items-center text-xs text-gray-400">
-                                <FiChevronRight className="text-amber-500 mr-1 text-[9px]" />
-                                {domain}
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-[10px] text-gray-600 italic">No domains registered</p>
-                          )}
-                        </div>
+                    )}
+                    
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Primary Domain</label>
+                      <p className="text-xs text-gray-300 bg-[#0F111A] p-2 rounded border border-gray-800">{subscriptionData.primaryDomain || 'No domain set'}</p>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">All Domains ({subscriptionData.domains.length})</label>
+                      <div className="space-y-1 bg-[#0F111A] p-2 rounded border border-gray-800 max-h-32 overflow-y-auto">
+                        {subscriptionData.domains.length > 0 ? (
+                          subscriptionData.domains.map((domain, index) => (
+                            <div key={index} className="flex items-center text-xs text-gray-400">
+                              <FiChevronRight className="text-amber-500 mr-1 text-[9px]" />
+                              {domain}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[10px] text-gray-600 italic">No domains registered</p>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
                 
-                {/* Subscription Timeline */}
                 <div className="bg-[#161B22] border border-gray-800 rounded-lg p-6 shadow-lg">
                   <div className="flex items-center gap-3 mb-5">
                     <div className="w-1 h-4 bg-amber-500"></div>
@@ -732,7 +885,7 @@ const Opayapi = () => {
                     <div>
                       <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Subscription ID</label>
                       <div className="flex items-center">
-                        <code className="flex-1 bg-[#0F111A] px-3 py-2 rounded-lg text-gray-300 font-mono text-[10px] border border-gray-800">
+                        <code className="flex-1 bg-[#0F111A] px-3 py-2 rounded-lg text-gray-300 font-mono text-[10px] border border-gray-800 truncate">
                           {subscriptionData.subscriptionId || 'No subscription ID'}
                         </code>
                         <button
@@ -823,7 +976,6 @@ const Opayapi = () => {
 
           {/* History & Webhooks */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Validation History */}
             <div className="bg-[#161B22] border border-gray-800 rounded-lg p-6 shadow-lg">
               <div className="flex items-center gap-3 mb-5">
                 <div className="p-2 rounded-lg bg-gray-700/30 border border-gray-700">
@@ -835,24 +987,27 @@ const Opayapi = () => {
                 </div>
               </div>
               
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-64 overflow-y-auto">
                 {validationHistory.length > 0 ? (
                   validationHistory.map((entry, index) => (
                     <div 
                       key={index} 
                       className={`p-3 rounded-lg border ${
-                        entry.valid 
+                        entry.valid && entry.domainMatch !== false
                           ? 'border-emerald-500/20 bg-emerald-500/5' 
                           : 'border-rose-500/20 bg-rose-500/5'
                       }`}
                     >
                       <div className="flex justify-between items-center">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                          entry.valid 
+                          entry.valid && entry.domainMatch !== false
                             ? 'bg-emerald-500/20 text-emerald-400' 
+                            : entry.domainMatch === false
+                            ? 'bg-rose-500/20 text-rose-400'
                             : 'bg-rose-500/20 text-rose-400'
                         }`}>
-                          {entry.valid ? 'Valid' : 'Invalid'}
+                          {entry.valid && entry.domainMatch !== false ? 'Valid' : 
+                           entry.domainMatch === false ? 'Domain Mismatch' : 'Invalid'}
                         </span>
                         <span className="text-[9px] text-gray-500">{entry.timestamp}</span>
                       </div>
@@ -875,11 +1030,10 @@ const Opayapi = () => {
               </div>
             </div>
             
-            {/* Webhook Info */}
             <div className="bg-[#161B22] border border-gray-800 rounded-lg p-6 shadow-lg">
               <div className="flex items-center gap-3 mb-5">
                 <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                  <FaPlug className="text-xl text-purple-400" />
+                  <FaServer className="text-xl text-purple-400" />
                 </div>
                 <div>
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400">Webhook Configuration</h3>
@@ -921,10 +1075,18 @@ const Opayapi = () => {
                   </span>
                 </div>
 
-                {subscriptionData.isValid && (
+                {subscriptionData.isValid && !domainMismatch && (
                   <div className="p-3 bg-emerald-500/5 rounded-lg border border-emerald-500/20">
                     <p className="text-[9px] text-emerald-400 font-bold uppercase flex items-center gap-2">
                       <FaCheckCircle /> API Key Valid - Integration ready to process payments
+                    </p>
+                  </div>
+                )}
+
+                {domainMismatch && (
+                  <div className="p-3 bg-rose-500/5 rounded-lg border border-rose-500/20">
+                    <p className="text-[9px] text-rose-400 font-bold uppercase flex items-center gap-2">
+                      <FaExclamationTriangle /> Domain Mismatch - Please whitelist your domain in OraclePay
                     </p>
                   </div>
                 )}
