@@ -39,6 +39,8 @@ const DeviceMonitoring = () => {
   const [apiKey, setApiKey] = useState('');
   const [validationStatus, setValidationStatus] = useState({ valid: false });
   const [integrationRunning, setIntegrationRunning] = useState(false);
+  const [hasReceivedDevices, setHasReceivedDevices] = useState(false);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
   
   const [devices, setDevices] = useState([]);
   const [deviceStats, setDeviceStats] = useState({
@@ -53,6 +55,7 @@ const DeviceMonitoring = () => {
   
   const socketRef = useRef(null);
   const uptimeIntervalRef = useRef(null);
+  const timeoutRef = useRef(null);
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
@@ -67,11 +70,16 @@ const DeviceMonitoring = () => {
         setIntegrationRunning(running || false);
         
         if (apiKey && validation?.valid && running) {
-          initializeSocket();
+          // Small delay to ensure everything is ready
+          setTimeout(() => initializeSocket(), 500);
+        } else {
+          // If no API key or not running, stop loading
+          setIsLoading(false);
         }
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
+      setIsLoading(false);
     }
   }, [base_url]);
 
@@ -134,22 +142,37 @@ const DeviceMonitoring = () => {
 
   // Initialize Socket.IO
   const initializeSocket = useCallback(() => {
-    if (!apiKey || !validationStatus.valid || !integrationRunning) return;
-    if (socketRef.current?.connected) return;
+    if (!apiKey || !validationStatus.valid || !integrationRunning) {
+      setIsLoading(false);
+      return;
+    }
+    
+    if (socketRef.current?.connected) {
+      setIsLoading(false);
+      return;
+    }
 
     if (socketRef.current) {
       socketRef.current.disconnect();
+      socketRef.current = null;
       clearInterval(uptimeIntervalRef.current);
     }
+
+    console.log('Initializing socket connection...');
+    setConnectionAttempts(prev => prev + 1);
 
     const socket = io("https://api.oraclepay.org", {
       transports: ["websocket", "polling"],
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      timeout: 10000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
       forceNew: true,
-      query: { apiKey }
+      query: { 
+        apiKey: apiKey,
+        timestamp: Date.now()
+      }
     });
 
     socketRef.current = socket;
@@ -160,29 +183,50 @@ const DeviceMonitoring = () => {
       setConnectionStats(prev => ({ ...prev, uptime }));
     }, 1000);
 
+    // Connection events
     socket.on("connect", () => {
-      console.log('Socket connected');
+      console.log('Socket connected successfully');
       setSocketConnected(true);
       setSocketError(null);
+      setHasReceivedDevices(false);
+      
+      // Register API key immediately
       socket.emit("viewer:registerApiKey", { apiKey });
+      console.log('Registered API key with server');
+      
       setConnectionStats(prev => ({ ...prev, connectedAt: new Date() }));
-      toast.success('Connected to monitoring', { duration: 2000 });
+      
+      // Set a timeout to stop loading if no devices received
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        if (!hasReceivedDevices) {
+          console.log('No devices received after 3 seconds, stopping loading');
+          setIsLoading(false);
+        }
+      }, 3000);
     });
 
     socket.on("connect_error", (error) => {
       console.error('Connection error:', error);
-      setSocketError(error.message);
+      setSocketError(error.message || 'Failed to connect');
       setSocketConnected(false);
+      setIsLoading(false);
     });
 
-    socket.on("disconnect", () => {
-      console.log('Socket disconnected');
+    socket.on("disconnect", (reason) => {
+      console.log('Socket disconnected:', reason);
       setSocketConnected(false);
       clearInterval(uptimeIntervalRef.current);
     });
 
+    // Device events
     socket.on("viewer:devices", (deviceList) => {
-      if (!Array.isArray(deviceList)) return;
+      console.log('Received devices:', deviceList?.length || 0);
+      
+      if (!Array.isArray(deviceList)) {
+        console.warn('Invalid device list received');
+        return;
+      }
       
       const transformedDevices = deviceList.map(device => ({
         id: device.deviceId || `device-${Math.random().toString(36).substr(2, 9)}`,
@@ -204,8 +248,17 @@ const DeviceMonitoring = () => {
       
       setDevices(transformedDevices);
       updateDeviceStats(transformedDevices);
+      setHasReceivedDevices(true);
       setIsLoading(false);
       setConnectionStats(prev => ({ ...prev, messageCount: prev.messageCount + 1 }));
+      
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      
+      if (deviceList.length > 0) {
+        toast.success(`Loaded ${deviceList.length} devices`, { duration: 1500 });
+      }
     });
 
     socket.on("viewer:device", (deviceUpdate) => {
@@ -262,11 +315,32 @@ const DeviceMonitoring = () => {
       });
       
       setConnectionStats(prev => ({ ...prev, messageCount: prev.messageCount + 1 }));
+      setHasReceivedDevices(true);
+      setIsLoading(false);
     });
 
     socket.on("viewer:error", (error) => {
       console.error('Server error:', error);
-      setSocketError(error.message);
+      setSocketError(error.message || 'Server error');
+      setIsLoading(false);
+    });
+
+    // Reconnection events
+    socket.io.on("reconnect", (attempt) => {
+      console.log(`Reconnected after ${attempt} attempts`);
+      // Re-register API key
+      socket.emit("viewer:registerApiKey", { apiKey });
+      toast.success('Reconnected to monitoring', { duration: 1500 });
+    });
+
+    socket.io.on("reconnect_error", (error) => {
+      console.error('Reconnection error:', error);
+    });
+
+    socket.io.on("reconnect_failed", () => {
+      console.error('Reconnection failed');
+      setSocketError('Failed to reconnect to server');
+      setIsLoading(false);
     });
 
     socket.connect();
@@ -275,19 +349,25 @@ const DeviceMonitoring = () => {
   // Load settings on mount
   useEffect(() => {
     loadSettings();
+    
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
       clearInterval(uptimeIntervalRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, [loadSettings]);
 
   // Auto-reconnect
   useEffect(() => {
     if (apiKey && validationStatus.valid && integrationRunning && !socketConnected && !socketRef.current) {
-      const timer = setTimeout(() => initializeSocket(), 1000);
+      const timer = setTimeout(() => {
+        initializeSocket();
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [apiKey, validationStatus.valid, integrationRunning, socketConnected, initializeSocket]);
@@ -315,9 +395,16 @@ const DeviceMonitoring = () => {
   // Handle refresh
   const handleRefresh = () => {
     setIsLoading(true);
+    setHasReceivedDevices(false);
+    
     if (socketRef.current?.connected) {
       socketRef.current.emit("viewer:registerApiKey", { apiKey });
-      setTimeout(() => setIsLoading(false), 500);
+      toast.info('Refreshing device list...', { duration: 1500 });
+      
+      // Set a timeout to stop loading
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 2000);
     } else {
       setIsLoading(false);
       initializeSocket();
@@ -345,6 +432,9 @@ const DeviceMonitoring = () => {
     if (minutes > 0) return `${minutes}m ${secs}s`;
     return `${secs}s`;
   };
+
+  // Force show devices even if loading (for debugging)
+  const hasDevices = devices.length > 0;
 
   return (
     <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
@@ -384,6 +474,9 @@ const DeviceMonitoring = () => {
                 )}
                 <span className="text-gray-600">•</span>
                 <span>{deviceStats.total} devices</span>
+                {connectionAttempts > 0 && (
+                  <span className="text-gray-600">• Attempt {connectionAttempts}</span>
+                )}
               </p>
             </div>
             <button 
@@ -462,12 +555,13 @@ const DeviceMonitoring = () => {
 
           {/* Device List */}
           <div className="bg-[#161B22] border border-gray-800/50 rounded-xl overflow-hidden">
-            {isLoading ? (
+            {isLoading && !hasDevices ? (
               <div className="p-8 text-center">
                 <div className="inline-block p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-3">
                   <FaSync className="animate-spin text-amber-400 text-xl" />
                 </div>
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loading devices...</p>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Connecting to server...</p>
+                <p className="text-[9px] text-gray-600 mt-1">Waiting for device data</p>
               </div>
             ) : filteredDevices.length === 0 ? (
               <div className="p-8 text-center">
@@ -476,8 +570,18 @@ const DeviceMonitoring = () => {
                   {devices.length === 0 ? 'No devices connected' : 'No devices match your search'}
                 </p>
                 <p className="text-[9px] text-gray-600 mt-1">
-                  {devices.length === 0 ? 'Devices will appear here when they connect' : 'Try adjusting your search'}
+                  {devices.length === 0 
+                    ? (socketConnected ? 'Devices will appear here when they connect' : 'Connect to monitoring to see devices')
+                    : 'Try adjusting your search'}
                 </p>
+                {devices.length === 0 && socketConnected && (
+                  <button
+                    onClick={handleRefresh}
+                    className="mt-3 text-[9px] text-amber-400 hover:text-amber-300 font-bold uppercase border border-amber-500/20 hover:border-amber-500/40 px-4 py-1.5 rounded-lg transition-all"
+                  >
+                    <FaSync className="inline mr-1" /> Refresh
+                  </button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-gray-800/50">
@@ -528,8 +632,15 @@ const DeviceMonitoring = () => {
           </div>
 
           {/* Footer */}
-          <div className="mt-4 text-center text-[8px] text-gray-600 uppercase tracking-wider border-t border-gray-800/50 pt-4">
-            {socketConnected ? '🟢 Live data' : '🔴 Disconnected'} • {deviceStats.total} devices • {connectionStats.messageCount} updates
+          <div className="mt-4 text-center text-[8px] text-gray-600 uppercase tracking-wider border-t border-gray-800/50 pt-4 flex items-center justify-center gap-4">
+            <span>{socketConnected ? '🟢 Live data' : '🔴 Disconnected'}</span>
+            <span>•</span>
+            <span>{deviceStats.total} devices</span>
+            <span>•</span>
+            <span>{connectionStats.messageCount} updates</span>
+            {socketConnected && hasReceivedDevices && (
+              <span className="text-emerald-400">✓ Ready</span>
+            )}
           </div>
 
         </main>
