@@ -11,6 +11,13 @@ module.exports = function opayApi(settingsCollection) {
   const GENERATE_URL = `${BASE_URL}/api/external/generate`;
   const SUPPORT_URL = `${BASE_URL}/api/external/support-number`;
 
+  // Cache for validation results
+  let validationCache = {
+    data: null,
+    timestamp: null,
+    ttl: 60000 // 1 minute cache
+  };
+
   const getAllowedDomain = () => {
     return process.env.DOMAIN || null;
   };
@@ -29,8 +36,17 @@ module.exports = function opayApi(settingsCollection) {
     );
   };
 
-  // Helper: perform external validation + domain check
-  const performValidation = async (apiKey, persistOnMismatch = true) => {
+  // Helper: perform external validation + domain check (with caching)
+  const performValidation = async (apiKey, persistOnMismatch = true, useCache = true) => {
+    // Check cache first
+    if (useCache && validationCache.data && validationCache.timestamp) {
+      const now = Date.now();
+      if (now - validationCache.timestamp < validationCache.ttl) {
+        console.log("Using cached validation result");
+        return validationCache.data;
+      }
+    }
+
     try {
       console.log("Validating API key against OraclePay...");
       
@@ -39,7 +55,7 @@ module.exports = function opayApi(settingsCollection) {
           "X-API-Key": apiKey,
           "User-Agent": "Opay-Integration/1.0"
         },
-        timeout: 30000,
+        timeout: 10000, // Reduced timeout for faster response
       });
       
       console.log("Validation response status:", response.status);
@@ -52,13 +68,7 @@ module.exports = function opayApi(settingsCollection) {
         const match = domains.includes(allowed) || primary === allowed;
         
         if (!match) {
-          if (persistOnMismatch) {
-            await saveSettings({ 
-              apiKey, 
-              validation: { ...payload, valid: false, reason: "DOMAIN_MISMATCH" }
-            });
-          }
-          return {
+          const result = {
             status: 400,
             body: {
               success: false,
@@ -70,15 +80,25 @@ module.exports = function opayApi(settingsCollection) {
               primaryDomain: primary,
             },
           };
+          
+          if (persistOnMismatch) {
+            await saveSettings({ 
+              apiKey, 
+              validation: result.body
+            });
+          }
+          
+          // Cache the result
+          validationCache = {
+            data: result,
+            timestamp: Date.now()
+          };
+          
+          return result;
         }
       }
       
-      await saveSettings({ 
-        apiKey, 
-        validation: { ...payload, valid: true }
-      });
-      
-      return { 
+      const result = { 
         status: 200, 
         body: { 
           ...payload, 
@@ -86,6 +106,19 @@ module.exports = function opayApi(settingsCollection) {
           valid: true 
         } 
       };
+      
+      await saveSettings({ 
+        apiKey, 
+        validation: result.body
+      });
+      
+      // Cache the result
+      validationCache = {
+        data: result,
+        timestamp: Date.now()
+      };
+      
+      return result;
       
     } catch (err) {
       console.error("External validation error:", err.message);
@@ -132,6 +165,12 @@ module.exports = function opayApi(settingsCollection) {
         });
       }
       
+      // Cache the error result
+      validationCache = {
+        data: errorResponse,
+        timestamp: Date.now()
+      };
+      
       return errorResponse;
     }
   };
@@ -141,7 +180,6 @@ module.exports = function opayApi(settingsCollection) {
     try {
       const { methods, amount, userIdentifyAddress } = req.body || {};
 
-      // Validate required fields
       if (!methods) {
         return res.status(400).json({
           success: false,
@@ -166,7 +204,6 @@ module.exports = function opayApi(settingsCollection) {
         });
       }
 
-      // Get saved API key
       const saved = await getSettings();
       const apiKey = saved?.apiKey;
 
@@ -178,13 +215,11 @@ module.exports = function opayApi(settingsCollection) {
         });
       }
 
-      // Validate API key first
-      const validationResult = await performValidation(apiKey, true);
+      const validationResult = await performValidation(apiKey, true, true);
       if (!validationResult.body.valid) {
         return res.status(validationResult.status).json(validationResult.body);
       }
 
-      // Generate payment page
       console.log("Generating payment page for:", { methods, amount, userIdentifyAddress });
 
       const response = await axios.get(GENERATE_URL, {
@@ -197,12 +232,11 @@ module.exports = function opayApi(settingsCollection) {
           'X-API-Key': apiKey,
           'User-Agent': 'Opay-Integration/1.0'
         },
-        timeout: 30000
+        timeout: 15000
       });
 
       console.log("Payment page generated successfully");
 
-      // Return the payment page URL and any additional data
       return res.status(200).json({
         success: true,
         payment_page_url: response.data.payment_page_url || response.data.url,
@@ -284,31 +318,38 @@ module.exports = function opayApi(settingsCollection) {
     }
   });
 
-  // ========== EXISTING ENDPOINTS (Unchanged) ==========
-
-  // Return Opay settings
+  // Return Opay settings - FAST response with cached validation
   router.get("/settings", async (req, res) => {
     try {
       const useCached = req.query.cached === "true";
       const saved = await getSettings();
       let currentValidation = saved?.validation || null;
       
+      // Only validate if not cached and API key exists
       if (saved?.apiKey && !useCached) {
         try {
-          const result = await performValidation(saved.apiKey, false);
+          // Use cached validation if available
+          const result = await performValidation(saved.apiKey, false, true);
           currentValidation = result.body;
         } catch (e) {
           console.error("Error refreshing validation:", e.message);
+          // Use saved validation if available
+          if (saved?.validation) {
+            currentValidation = saved.validation;
+          }
         }
       }
       
+      // Return response immediately
       return res.status(200).json({
         apiKey: saved?.apiKey || "",
-        validation: currentValidation,
+        validation: currentValidation || { valid: false },
         updatedAt: saved?.updatedAt || null,
         running: saved?.running === true,
         refreshed: !useCached && !!saved?.apiKey,
+        cached: useCached
       });
+      
     } catch (err) {
       console.error("Settings error:", err);
       return res.status(500).json({ 
@@ -319,7 +360,7 @@ module.exports = function opayApi(settingsCollection) {
     }
   });
 
-  // Validate API key
+  // Validate API key - with caching
   router.post("/validate", async (req, res) => {
     try {
       let { apiKey } = req.body || {};
@@ -338,7 +379,11 @@ module.exports = function opayApi(settingsCollection) {
         });
       }
 
-      const result = await performValidation(apiKey, true);
+      // Force fresh validation
+      validationCache.data = null;
+      validationCache.timestamp = null;
+      
+      const result = await performValidation(apiKey, true, false);
       return res.status(result.status).json(result.body);
       
     } catch (err) {
