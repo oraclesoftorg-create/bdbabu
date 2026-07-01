@@ -5,110 +5,31 @@ const jwt = require("jsonwebtoken");
 const { User } = require("../models/User");
 const Affiliate = require("../models/Affiliate");
 const mongoose = require("mongoose");
-const axios=require("axios")
+const axios = require("axios");
+
 // JWT Secret Keys
 const JWT_SECRET = process.env.JWT_SECRET || "fsdfsdfsd43534";
 const AFFILIATE_JWT_SECRET = process.env.AFFILIATE_JWT_SECRET || "dfsdfsdf535345";
 
-// Function to generate a random player ID
-const generatePlayerId = () => {
-  const prefix = "PID";
-  const randomNum = Math.floor(100000 + Math.random() * 900000);
-  return `${prefix}${randomNum}`;
+// ==================== SMS CONFIGURATION ====================
+// Using the API from the documentation
+const SMS_CONFIG = {
+    API_KEY: "eb9d3c68ed3a4157f6a77b6cf2711c7c7b36e40b51c55a085d7794c3919b4a41",
+    BASE_URL: "https://api.o-sms.com/api/service",
+    AUTH_HEADER: "Bearer eb9d3c68ed3a4157f6a77b6cf2711c7c7b36e40b51c55a085d7794c3919b4a41"
 };
 
-// Helper function to get device info
-const getDeviceInfo = (userAgent) => {
-  let deviceType = 'unknown';
-  let browser = 'unknown';
-  let os = 'unknown';
-  
-  if (userAgent.includes('Mobile')) deviceType = 'mobile';
-  else if (userAgent.includes('Tablet')) deviceType = 'tablet';
-  else deviceType = 'desktop';
-  
-  if (userAgent.includes('Chrome')) browser = 'Chrome';
-  else if (userAgent.includes('Firefox')) browser = 'Firefox';
-  else if (userAgent.includes('Safari')) browser = 'Safari';
-  else if (userAgent.includes('Edge')) browser = 'Edge';
-  
-  if (userAgent.includes('Windows')) os = 'Windows';
-  else if (userAgent.includes('Mac')) os = 'macOS';
-  else if (userAgent.includes('Linux')) os = 'Linux';
-  else if (userAgent.includes('Android')) os = 'Android';
-  else if (userAgent.includes('iOS')) os = 'iOS';
-  
-  return { deviceType, browser, os };
-};
-
-// Import models
-const LoginLog = require('../models/LoginLog');
-const MasterAffiliate = require("../models/MasterAffiliate");
-
-// Try to import ClickTrack, but handle if it doesn't exist
-let ClickTrack;
-try {
-  ClickTrack = require('../models/ClickTrack');
-} catch (error) {
-  console.log('ClickTrack model not found, creating simplified version...');
-  ClickTrack = {
-    findOne: () => Promise.resolve(null),
-    findOneAndUpdate: () => Promise.resolve(null),
-    prototype: {
-      save: () => Promise.resolve()
-    }
-  };
-}
-
-// Helper function to validate payment details
-const validatePaymentDetails = (paymentMethod, paymentData) => {
-  switch (paymentMethod) {
-    case 'bkash':
-    case 'nagad':
-    case 'rocket':
-      if (!paymentData.phoneNumber) {
-        return { isValid: false, message: `${paymentMethod} phone number is required` };
-      }
-      const phoneRegex = /^01[3-9]\d{8}$/;
-      if (!phoneRegex.test(paymentData.phoneNumber)) {
-        return { isValid: false, message: `Invalid ${paymentMethod} phone number format. Use Bangladeshi format: 01XXXXXXXXX` };
-      }
-      break;
-
-    case 'binance':
-      if (!paymentData.email) {
-        return { isValid: false, message: 'Binance email is required' };
-      }
-      if (!paymentData.walletAddress) {
-        return { isValid: false, message: 'Binance wallet address is required' };
-      }
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(paymentData.email)) {
-        return { isValid: false, message: 'Invalid Binance email format' };
-      }
-      break;
-
-    default:
-      return { isValid: false, message: 'Invalid payment method' };
-  }
-  return { isValid: true };
-};
-// ==================== OTP & PHONE VERIFICATION ROUTES ====================
-
-// OTP Configuration
+// ==================== OTP CONFIGURATION ====================
 const OTP_CONFIG = {
     EXPIRY_MINUTES: 5,
     CODE_LENGTH: 6,
     MAX_ATTEMPTS: 3,
-    RESEND_COOLDOWN_SECONDS: 60,
-    SENDER_ID:'8809617611338',
-    API_BASE_URL:'https://xend.positiveapi.com/api/v3',
-    TOKEN:"419|xFSHHY3vGlHDNE3XFijfExhQBpWsC64VsL51BYPO"
+    RESEND_COOLDOWN_SECONDS: 60
 };
 
 // Helper function to generate OTP
 function generateOTP(length = OTP_CONFIG.CODE_LENGTH) {
-    return Math.floor(100000 + Math.random() * 900000).toString(); // Always 6 digits
+    return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 // Helper function to format phone number for Bangladesh
@@ -130,49 +51,55 @@ function formatBangladeshPhone(phone) {
     
     // Ensure it's a valid Bangladeshi number (10 digits starting with 1)
     if (cleaned.length === 10 && cleaned.startsWith('1')) {
-        return `+880${cleaned}`;
+        return `880${cleaned}`;
     }
     
     return null;
 }
 
-// Helper function to send SMS via Xend API
-// Helper function to send SMS via Xend API
+// Helper function to send SMS via the O-SMS API
 async function sendSMS(phoneNumber, message) {
     try {
-        // Format phone number for API (remove + and ensure 880 format)
+        // Remove any + sign and ensure it's in the correct format
         let apiPhone = phoneNumber.replace(/\D/g, '');
-        if (apiPhone.startsWith('880')) {
-            apiPhone = apiPhone;
-        } else if (apiPhone.startsWith('1')) {
-            apiPhone = '880' + apiPhone;
+        if (!apiPhone.startsWith('880')) {
+            if (apiPhone.startsWith('1')) {
+                apiPhone = '880' + apiPhone;
+            } else {
+                apiPhone = '880' + apiPhone;
+            }
         }
+
+        const url = `${SMS_CONFIG.BASE_URL}/send-otp`;
         
-        const url = `${OTP_CONFIG.API_BASE_URL}/sms/send`;
-        
-        // Prepare the request body
         const requestBody = {
-            recipient: apiPhone,
-            sender_id: OTP_CONFIG.SENDER_ID,
-            message: message
+            phoneNumber: apiPhone
         };
 
-        console.log(`Sending SMS to ${apiPhone}: ${message.substring(0, 20)}...`);
+        console.log(`Sending OTP via O-SMS API to ${apiPhone}...`);
 
-        // Make POST request with Authorization header
         const response = await axios.post(url, requestBody, {
             headers: {
-                'Authorization': `Bearer ${OTP_CONFIG.TOKEN}`,
+                'Authorization': SMS_CONFIG.AUTH_HEADER,
                 'Content-Type': 'application/json'
             }
         });
-        
-        // Check response status
-        if (response.data && response.data.status === 'success') {
-            return { success: true, data: response.data };
+
+        console.log('SMS API Response:', response.data);
+
+        // Check if the response indicates success
+        if (response.data && response.data.success === true) {
+            return { 
+                success: true, 
+                data: response.data,
+                otp: response.data.otp // The API returns OTP in the response
+            };
         } else {
             console.error('SMS sending failed:', response.data);
-            return { success: false, error: 'SMS sending failed' };
+            return { 
+                success: false, 
+                error: response.data?.message || 'SMS sending failed' 
+            };
         }
     } catch (error) {
         console.error('Error sending SMS:', error.response?.data || error.message);
@@ -182,6 +109,123 @@ async function sendSMS(phoneNumber, message) {
         };
     }
 }
+
+// Helper function to send single SMS (for non-OTP messages)
+async function sendSingleSMS(phoneNumber, message) {
+    try {
+        let apiPhone = phoneNumber.replace(/\D/g, '');
+        if (!apiPhone.startsWith('880')) {
+            if (apiPhone.startsWith('1')) {
+                apiPhone = '880' + apiPhone;
+            } else {
+                apiPhone = '880' + apiPhone;
+            }
+        }
+
+        const url = `${SMS_CONFIG.BASE_URL}/send-single`;
+        
+        const requestBody = {
+            phoneNumber: apiPhone,
+            message: message
+        };
+
+        console.log(`Sending single SMS via O-SMS API to ${apiPhone}...`);
+
+        const response = await axios.post(url, requestBody, {
+            headers: {
+                'Authorization': SMS_CONFIG.AUTH_HEADER,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        console.log('Single SMS API Response:', response.data);
+
+        if (response.data && response.data.success === true) {
+            return { success: true, data: response.data };
+        } else {
+            console.error('Single SMS sending failed:', response.data);
+            return { 
+                success: false, 
+                error: response.data?.message || 'SMS sending failed' 
+            };
+        }
+    } catch (error) {
+        console.error('Error sending single SMS:', error.response?.data || error.message);
+        return { 
+            success: false, 
+            error: error.response?.data?.message || error.message 
+        };
+    }
+}
+
+// ==================== MIDDLEWARE & HELPER FUNCTIONS ====================
+
+// Function to generate a random player ID
+const generatePlayerId = () => {
+    const prefix = "PID";
+    const randomNum = Math.floor(100000 + Math.random() * 900000);
+    return `${prefix}${randomNum}`;
+};
+
+// Helper function to get device info
+const getDeviceInfo = (userAgent) => {
+    let deviceType = 'unknown';
+    let browser = 'unknown';
+    let os = 'unknown';
+    
+    if (userAgent.includes('Mobile')) deviceType = 'mobile';
+    else if (userAgent.includes('Tablet')) deviceType = 'tablet';
+    else deviceType = 'desktop';
+    
+    if (userAgent.includes('Chrome')) browser = 'Chrome';
+    else if (userAgent.includes('Firefox')) browser = 'Firefox';
+    else if (userAgent.includes('Safari')) browser = 'Safari';
+    else if (userAgent.includes('Edge')) browser = 'Edge';
+    
+    if (userAgent.includes('Windows')) os = 'Windows';
+    else if (userAgent.includes('Mac')) os = 'macOS';
+    else if (userAgent.includes('Linux')) os = 'Linux';
+    else if (userAgent.includes('Android')) os = 'Android';
+    else if (userAgent.includes('iOS')) os = 'iOS';
+    
+    return { deviceType, browser, os };
+};
+
+// Helper function to validate payment details
+const validatePaymentDetails = (paymentMethod, paymentData) => {
+    switch (paymentMethod) {
+        case 'bkash':
+        case 'nagad':
+        case 'rocket':
+            if (!paymentData.phoneNumber) {
+                return { isValid: false, message: `${paymentMethod} phone number is required` };
+            }
+            const phoneRegex = /^01[3-9]\d{8}$/;
+            if (!phoneRegex.test(paymentData.phoneNumber)) {
+                return { isValid: false, message: `Invalid ${paymentMethod} phone number format. Use Bangladeshi format: 01XXXXXXXXX` };
+            }
+            break;
+
+        case 'binance':
+            if (!paymentData.email) {
+                return { isValid: false, message: 'Binance email is required' };
+            }
+            if (!paymentData.walletAddress) {
+                return { isValid: false, message: 'Binance wallet address is required' };
+            }
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(paymentData.email)) {
+                return { isValid: false, message: 'Invalid Binance email format' };
+            }
+            break;
+
+        default:
+            return { isValid: false, message: 'Invalid payment method' };
+    }
+    return { isValid: true };
+};
+
+// ==================== OTP & PHONE VERIFICATION ROUTES ====================
 
 // Request OTP for phone verification during signup
 Authrouter.post("/request-signup-otp", async (req, res) => {
@@ -206,7 +250,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
         }
 
         // Check if phone is already registered
-        const existingUser = await User.findOne({ phone: formattedPhone });
+        const existingUser = await User.findOne({ phone: `+88${formattedPhone}` });
         if (existingUser) {
             return res.status(400).json({
                 success: false,
@@ -220,7 +264,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
         // Calculate expiry time
         const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
 
-        // Store OTP in memory (you can also use a separate OTP model in production)
+        // Store OTP in memory
         global.otpStore = global.otpStore || {};
         
         global.otpStore[formattedPhone] = {
@@ -234,7 +278,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
         // Prepare SMS message in Bengali for better user experience
         const message = `আপনার ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
 
-        // Send SMS
+        // Send SMS using the O-SMS API
         const smsResult = await sendSMS(formattedPhone, message);
 
         // For development/testing, always return success with OTP
@@ -243,9 +287,9 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 success: true,
                 message: 'OTP sent successfully (Development Mode)',
                 data: {
-                    otp: otpCode, // Only in development
+                    otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -256,7 +300,9 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 message: 'OTP sent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`,
+                    // In production, don't send the OTP in response
+                    // Only include for development
                 }
             });
         } else {
@@ -266,7 +312,7 @@ Authrouter.post("/request-signup-otp", async (req, res) => {
                 message: 'OTP generated but SMS delivery failed. Please try again or use development mode.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone,
+                    phone: `+88${formattedPhone}`,
                     devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
                 }
             });
@@ -304,7 +350,7 @@ Authrouter.post("/request-login-otp", async (req, res) => {
         }
 
         // Check if user exists with this phone
-        const user = await User.findOne({ phone: formattedPhone });
+        const user = await User.findOne({ phone: `+88${formattedPhone}` });
         
         if (!user) {
             // Don't reveal that user doesn't exist for security reasons
@@ -331,7 +377,7 @@ Authrouter.post("/request-login-otp", async (req, res) => {
         // Prepare SMS message
         const message = `আপনার লগইন ভেরিফিকেশন কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour login verification code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
 
-        // Send SMS
+        // Send SMS using the O-SMS API
         const smsResult = await sendSMS(formattedPhone, message);
 
         // For development/testing
@@ -342,7 +388,7 @@ Authrouter.post("/request-login-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -353,7 +399,7 @@ Authrouter.post("/request-login-otp", async (req, res) => {
                 message: 'OTP sent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         } else {
@@ -363,7 +409,7 @@ Authrouter.post("/request-login-otp", async (req, res) => {
                 message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -418,7 +464,6 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
         }
 
         if (new Date() > new Date(storedOTP.expiresAt)) {
-            // Clear expired OTP
             delete global.otpStore[formattedPhone];
             return res.status(400).json({
                 success: false,
@@ -448,7 +493,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
         // Clear OTP after successful verification
         delete global.otpStore[formattedPhone];
 
-        // Now create the user (use your existing user creation logic)
+        // Now create the user
         const { username, password, confirmPassword, fullName, email, referralCode, affiliateCode } = userData;
         const ipAddress = req.ip || req.connection.remoteAddress;
         const userAgent = req.get('User-Agent') || 'unknown';
@@ -491,7 +536,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
 
         // Check if user already exists
         const existingUser = await User.findOne({
-            $or: [{ username }, { phone: formattedPhone }, { email }]
+            $or: [{ username }, { phone: `+88${formattedPhone}` }, { email }]
         });
 
         if (existingUser) {
@@ -501,7 +546,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
                     message: "Username already exists." 
                 });
             }
-            if (existingUser.phone === formattedPhone) {
+            if (existingUser.phone === `+88${formattedPhone}`) {
                 return res.status(400).json({ 
                     success: false,
                     message: "Phone number already registered." 
@@ -556,7 +601,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
 
         // Create new user
         const newUser = new User({
-            phone: formattedPhone,
+            phone: `+88${formattedPhone}`,
             username,
             password,
             fullName,
@@ -564,12 +609,12 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             player_id,
             referredBy,
             registrationSource,
-            isPhoneVerified: true // Phone is verified via OTP
+            isPhoneVerified: true
         });
 
         await newUser.save();
 
-        // Handle affiliate referral (use your existing affiliate logic)
+        // Handle affiliate referral
         let affiliateId = null;
         if (affiliateCode) {
             const affiliate = await Affiliate.findOne({ 
@@ -622,7 +667,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             }
         }
 
-        // Handle user referral (use your existing logic)
+        // Handle user referral
         if (referredBy) {
             try {
                 await User.findByIdAndUpdate(referredBy, {
@@ -658,6 +703,7 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
         // Create login log
         const { deviceType, browser, os } = getDeviceInfo(userAgent);
         
+        const LoginLog = require('../models/LoginLog');
         const loginLog = new LoginLog({
             userId: newUser._id,
             username: newUser.username,
@@ -731,7 +777,7 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
         }
 
         // Find user by phone
-        const user = await User.findOne({ phone: formattedPhone }).select("+password");
+        const user = await User.findOne({ phone: `+88${formattedPhone}` }).select("+password");
 
         if (!user) {
             return res.status(404).json({
@@ -778,6 +824,7 @@ Authrouter.post("/verify-login-otp", async (req, res) => {
         // Create login log
         const { deviceType, browser, os } = getDeviceInfo(userAgent);
         
+        const LoginLog = require('../models/LoginLog');
         const loginLog = new LoginLog({
             userId: user._id,
             username: user.username,
@@ -892,7 +939,7 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -903,7 +950,7 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
                 message: 'OTP resent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         } else {
@@ -912,7 +959,7 @@ Authrouter.post("/resend-signup-otp", async (req, res) => {
                 message: 'OTP regenerated but SMS delivery failed. Please try again.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -949,10 +996,9 @@ Authrouter.post("/request-password-reset-otp", async (req, res) => {
         }
 
         // Find user by phone
-        const user = await User.findOne({ phone: formattedPhone });
+        const user = await User.findOne({ phone: `+88${formattedPhone}` });
 
         if (!user) {
-            // Don't reveal that user doesn't exist for security
             return res.json({
                 success: true,
                 message: "If this phone number is registered, you will receive an OTP"
@@ -992,7 +1038,8 @@ Authrouter.post("/request-password-reset-otp", async (req, res) => {
         });
     }
 });
-// Update the request-otp route - replace the existing one
+
+// Request OTP for forgot password
 Authrouter.post("/forgot-password/request-otp", async (req, res) => {
     try {
         const { phone } = req.body;
@@ -1004,7 +1051,6 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
             });
         }
 
-        // Format phone number for Bangladesh
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -1014,26 +1060,22 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
             });
         }
 
-        // Check if user exists with this phone
-        const user = await User.findOne({ phone: formattedPhone });
+        const user = await User.findOne({ phone: `+88${formattedPhone}` });
         
         if (!user) {
-            // For security, don't reveal that user doesn't exist
             return res.json({
                 success: true,
                 message: "If this phone number is registered, you will receive an OTP"
             });
         }
 
-        // Generate OTP
         const otpCode = generateOTP();
         const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
 
-        // Store OTP in the EXISTING otp field (not resetPasswordOTP)
         user.otp = {
             code: otpCode,
             expiresAt: expiresAt,
-            purpose: 'password_reset', // Change purpose to password_reset
+            purpose: 'password_reset',
             verified: false,
             attempts: 0,
             createdAt: new Date()
@@ -1041,13 +1083,10 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
         
         await user.save();
 
-        // Prepare SMS message
         const message = `আপনার পাসওয়ার্ড রিসেট কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour password reset code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
 
-        // Send SMS
         const smsResult = await sendSMS(formattedPhone, message);
 
-        // For development/testing
         if (process.env.NODE_ENV === 'development') {
             return res.json({
                 success: true,
@@ -1055,7 +1094,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -1066,7 +1105,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 message: 'OTP sent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         } else {
@@ -1076,7 +1115,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
                 message: 'OTP generated but SMS delivery failed. Please try again or contact support.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone,
+                    phone: `+88${formattedPhone}`,
                     devOtp: process.env.NODE_ENV === 'development' ? otpCode : undefined
                 }
             });
@@ -1091,7 +1130,7 @@ Authrouter.post("/forgot-password/request-otp", async (req, res) => {
     }
 });
 
-// Update verify-otp route
+// Verify OTP for forgot password
 Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
     try {
         const { phone, otp } = req.body;
@@ -1103,7 +1142,6 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Format phone number
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -1113,8 +1151,7 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Find user by phone
-        const user = await User.findOne({ phone: formattedPhone });
+        const user = await User.findOne({ phone: `+88${formattedPhone}` });
 
         if (!user) {
             return res.status(404).json({
@@ -1123,7 +1160,6 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Check if OTP exists in the otp field
         if (!user.otp || user.otp.purpose !== 'password_reset') {
             return res.status(400).json({
                 success: false,
@@ -1131,11 +1167,9 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Track attempts
         user.otp.attempts = (user.otp.attempts || 0) + 1;
         
         if (user.otp.attempts > OTP_CONFIG.MAX_ATTEMPTS) {
-            // Clear OTP after too many attempts
             user.otp = undefined;
             await user.save();
             
@@ -1145,7 +1179,6 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Check expiry
         if (new Date() > new Date(user.otp.expiresAt)) {
             user.otp = undefined;
             await user.save();
@@ -1156,9 +1189,8 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Verify OTP
         if (user.otp.code !== otp.toString()) {
-            await user.save(); // Save attempt count
+            await user.save();
             
             return res.status(400).json({
                 success: false,
@@ -1166,11 +1198,9 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             });
         }
 
-        // Mark OTP as verified
         user.otp.verified = true;
         user.otp.verifiedAt = new Date();
         
-        // Generate a temporary token for password reset (valid for 15 minutes)
         const resetToken = jwt.sign(
             { 
                 userId: user._id, 
@@ -1188,7 +1218,7 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
             message: 'OTP verified successfully',
             data: {
                 resetToken,
-                phone: formattedPhone
+                phone: `+88${formattedPhone}`
             }
         });
 
@@ -1201,7 +1231,7 @@ Authrouter.post("/forgot-password/verify-otp", async (req, res) => {
     }
 });
 
-// Update reset password route
+// Reset password
 Authrouter.post("/forgot-password/reset", async (req, res) => {
     try {
         const { resetToken, newPassword, confirmPassword } = req.body;
@@ -1227,7 +1257,6 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
             });
         }
 
-        // Verify reset token
         let decoded;
         try {
             decoded = jwt.verify(resetToken, JWT_SECRET);
@@ -1251,7 +1280,6 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
             });
         }
 
-        // Find user
         const user = await User.findById(decoded.userId).select('+password');
 
         if (!user) {
@@ -1261,7 +1289,6 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
             });
         }
 
-        // Check if OTP was verified
         if (!user.otp || !user.otp.verified || user.otp.purpose !== 'password_reset') {
             return res.status(400).json({
                 success: false,
@@ -1269,20 +1296,14 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
             });
         }
 
-        // Update password
         user.password = newPassword;
-        
-        // Clear OTP data
         user.otp = undefined;
-        
-        // Update password change timestamp (add this field to your schema if needed)
         user.passwordChangedAt = new Date();
         
         await user.save();
 
-        // Send confirmation SMS
         const message = `আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।\n\nYour password has been changed successfully.`;
-        await sendSMS(user.phone, message).catch(err => 
+        await sendSingleSMS(user.phone.replace('+88', ''), message).catch(err => 
             console.error('Failed to send password change SMS:', err)
         );
 
@@ -1300,7 +1321,7 @@ Authrouter.post("/forgot-password/reset", async (req, res) => {
     }
 });
 
-// Update resend OTP route
+// Resend OTP for forgot password
 Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
     try {
         const { phone } = req.body;
@@ -1312,7 +1333,6 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
             });
         }
 
-        // Format phone number
         const formattedPhone = formatBangladeshPhone(phone);
         
         if (!formattedPhone) {
@@ -1322,8 +1342,7 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
             });
         }
 
-        // Find user
-        const user = await User.findOne({ phone: formattedPhone });
+        const user = await User.findOne({ phone: `+88${formattedPhone}` });
 
         if (!user) {
             return res.json({
@@ -1332,7 +1351,6 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
             });
         }
 
-        // Check cooldown
         if (user.otp && user.otp.createdAt) {
             const timeSinceLastRequest = (new Date() - new Date(user.otp.createdAt)) / 1000;
             if (timeSinceLastRequest < OTP_CONFIG.RESEND_COOLDOWN_SECONDS) {
@@ -1344,11 +1362,9 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
             }
         }
 
-        // Generate new OTP
         const otpCode = generateOTP();
         const expiresAt = new Date(Date.now() + OTP_CONFIG.EXPIRY_MINUTES * 60 * 1000);
 
-        // Store new OTP in the existing otp field
         user.otp = {
             code: otpCode,
             expiresAt: expiresAt,
@@ -1360,7 +1376,6 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
         
         await user.save();
 
-        // Send SMS
         const message = `আপনার নতুন পাসওয়ার্ড রিসেট কোড: ${otpCode}\nএই কোডটি ${OTP_CONFIG.EXPIRY_MINUTES} মিনিটের জন্য বৈধ।\n\nYour new password reset code is: ${otpCode}. Valid for ${OTP_CONFIG.EXPIRY_MINUTES} minutes.`;
         
         const smsResult = await sendSMS(formattedPhone, message);
@@ -1372,7 +1387,7 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
                 data: {
                     otp: otpCode,
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -1383,7 +1398,7 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
                 message: 'OTP resent successfully. Please check your phone.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         } else {
@@ -1392,7 +1407,7 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
                 message: 'OTP regenerated but SMS delivery failed. Please try again.',
                 data: {
                     expiresAt: expiresAt,
-                    phone: formattedPhone
+                    phone: `+88${formattedPhone}`
                 }
             });
         }
@@ -1405,1225 +1420,1108 @@ Authrouter.post("/forgot-password/resend-otp", async (req, res) => {
         });
     }
 });
-// Verify OTP and reset password
-Authrouter.post("/reset-password-with-otp", async (req, res) => {
+
+// ==================== AFFILIATE ROUTES ====================
+
+// Affiliate Registration Route
+Authrouter.post("/affiliate/register", async (req, res) => {
     try {
-        const { phone, otp, newPassword, confirmPassword } = req.body;
+        const {
+            email,
+            password,
+            firstName,
+            lastName,
+            phone,
+            company,
+            website,
+            promoMethod,
+            paymentMethod,
+            paymentDetails
+        } = req.body;
 
-        if (!phone || !otp || !newPassword || !confirmPassword) {
+        if (!email || !password || !firstName || !lastName || !phone) {
             return res.status(400).json({
                 success: false,
-                message: "Phone, OTP, new password, and confirm password are required"
+                message: "Email, password, first name, last name, and phone are required"
             });
         }
 
-        if (newPassword !== confirmPassword) {
-            return res.status(400).json({
-                success: false,
-                message: "Passwords do not match"
-            });
-        }
-
-        if (newPassword.length < 6) {
+        if (password.length < 6) {
             return res.status(400).json({
                 success: false,
                 message: "Password must be at least 6 characters long"
             });
         }
 
-        // Format phone number
-        const formattedPhone = formatBangladeshPhone(phone);
-
-        // Find user by phone
-        const user = await User.findOne({ phone: formattedPhone }).select('+password');
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
+        if (paymentMethod) {
+            switch (paymentMethod) {
+                case 'bkash':
+                case 'nagad':
+                case 'rocket':
+                    if (!paymentDetails?.phoneNumber) {
+                        return res.status(400).json({
+                            success: false,
+                            message: `${paymentMethod} phone number is required`
+                        });
+                    }
+                    if (!/^01[3-9]\d{8}$/.test(paymentDetails.phoneNumber)) {
+                        return res.status(400).json({
+                            success: false,
+                            message: `Invalid ${paymentMethod} phone number. Use format: 01XXXXXXXXX`
+                        });
+                    }
+                    break;
+                
+                case 'binance':
+                    if (!paymentDetails?.email) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Binance email is required"
+                        });
+                    }
+                    if (!/\S+@\S+\.\S+/.test(paymentDetails.email)) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Binance email is invalid"
+                        });
+                    }
+                    if (!paymentDetails?.walletAddress) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Binance wallet address is required"
+                        });
+                    }
+                    break;
+                
+                default:
+                    return res.status(400).json({
+                        success: false,
+                        message: "Please select a valid payment method"
+                    });
+            }
         }
 
-        // Check OTP
-        if (!user.otp || user.otp.purpose !== 'password_reset') {
+        const existingAffiliate = await Affiliate.findOne({ 
+            $or: [
+                { email: email.toLowerCase() },
+                { phone: phone }
+            ]
+        });
+
+        if (existingAffiliate) {
             return res.status(400).json({
                 success: false,
-                message: "No password reset request found. Please request a new OTP."
+                message: "Affiliate with this email or phone already exists"
             });
         }
 
-        if (new Date() > new Date(user.otp.expiresAt)) {
-            return res.status(400).json({
-                success: false,
-                message: "OTP has expired. Please request a new one."
-            });
+        const dbPaymentDetails = {};
+        if (paymentMethod && paymentDetails) {
+            dbPaymentDetails[paymentMethod] = paymentDetails;
+            
+            if (['bkash', 'nagad', 'rocket'].includes(paymentMethod)) {
+                if (!dbPaymentDetails[paymentMethod].accountType) {
+                    dbPaymentDetails[paymentMethod].accountType = 'personal';
+                }
+            }
         }
 
-        if (user.otp.code !== otp.toString()) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid OTP. Please try again."
-            });
-        }
+        const affiliate = new Affiliate({
+            email: email.toLowerCase(),
+            password,
+            firstName,
+            lastName,
+            phone,
+            company: company || '',
+            website: website || '',
+            promoMethod: promoMethod || 'other',
+            paymentMethod: paymentMethod || 'bkash',
+            paymentDetails: dbPaymentDetails,
+            status: 'pending',
+            verificationStatus: 'unverified'
+        });
 
-        // Update password
-        user.password = newPassword;
-        user.otp.verified = true;
-        
-        await user.save();
+        await affiliate.save();
 
-        res.json({
+        res.status(201).json({
             success: true,
-            message: "Password reset successfully. You can now login with your new password."
+            message: "Affiliate registered successfully. Please wait for admin approval.",
+            affiliate: {
+                id: affiliate._id,
+                email: affiliate.email,
+                firstName: affiliate.firstName,
+                lastName: affiliate.lastName,
+                affiliateCode: affiliate.affiliateCode,
+                status: affiliate.status,
+                verificationStatus: affiliate.verificationStatus
+            }
         });
 
     } catch (error) {
-        console.error("Reset password with OTP error:", error);
+        console.error("Registration error:", error);
+        
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: "Affiliate with this email or phone already exists"
+            });
+        }
+        
+        if (error.name === 'ValidationError') {
+            const errors = Object.values(error.errors).map(err => err.message);
+            return res.status(400).json({
+                success: false,
+                message: errors.join(', ')
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: "Internal server error during registration"
+        });
+    }
+});
+
+// Affiliate login
+Authrouter.post("/affiliate/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and password are required"
+            });
+        }
+
+        const affiliate = await Affiliate.findOne({ email: email.toLowerCase() });
+        if (!affiliate) {
+            return res.json({
+                success: false,
+                message: "email or password is wrong!"
+            });
+        }
+
+        if (affiliate.status !== 'active') {
+            return res.json({
+                success: false,
+                message: `Your account is ${affiliate.status}. Please wait for admin approval before logging in.`
+            });
+        }
+
+        const isPasswordValid = await affiliate.comparePassword(password);
+        if (!isPasswordValid) {
+            return res.json({
+                success: false,
+                message: "email or password is wrong!"
+            });
+        }
+
+        affiliate.lastLogin = new Date();
+        await affiliate.save();
+
+        const token = jwt.sign(
+            { affiliateId: affiliate._id, email: affiliate.email },
+            AFFILIATE_JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+
+        res.json({
+            success: true,
+            message: "Login successful",
+            token,
+            affiliate: {
+                id: affiliate._id,
+                email: affiliate.email,
+                firstName: affiliate.firstName,
+                lastName: affiliate.lastName,
+                fullName: affiliate.fullName,
+                affiliateCode: affiliate.affiliateCode,
+                status: affiliate.status,
+                verificationStatus: affiliate.verificationStatus,
+                lastLogin: affiliate.lastLogin
+            }
+        });
+
+    } catch (error) {
+        console.error("Login error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error during login"
+        });
+    }
+});
+
+// Master Affiliate Login Route
+Authrouter.post("/master-affiliate/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and password are required"
+            });
+        }
+
+        const MasterAffiliate = require("../models/MasterAffiliate");
+        const masterAffiliate = await MasterAffiliate.findOne({ 
+            email: email.toLowerCase(),
+            role: 'master_affiliate'
+        });
+
+        if (!masterAffiliate) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password"
+            });
+        }
+
+        if (masterAffiliate.status !== 'active') {
+            return res.status(403).json({
+                success: false,
+                message: `Your master affiliate account is ${masterAffiliate.status}. Please contact admin or your super affiliate for activation.`
+            });
+        }
+
+        const isPasswordValid = await masterAffiliate.comparePassword(password);
+        if (!isPasswordValid) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password"
+            });
+        }
+
+        masterAffiliate.lastLogin = new Date();
+        await masterAffiliate.save();
+
+        const token = jwt.sign(
+            { 
+                masterAffiliateId: masterAffiliate._id, 
+                email: masterAffiliate.email,
+                role: 'master_affiliate',
+                createdBy: masterAffiliate.createdBy
+            },
+            AFFILIATE_JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+
+        res.json({
+            success: true,
+            message: "Master affiliate login successful",
+            token,
+            masterAffiliate: {
+                id: masterAffiliate._id,
+                email: masterAffiliate.email,
+                firstName: masterAffiliate.firstName,
+                lastName: masterAffiliate.lastName,
+                fullName: masterAffiliate.fullName,
+                affiliateCode: masterAffiliate.affiliateCode,
+                role: masterAffiliate.role,
+                status: masterAffiliate.status,
+                verificationStatus: masterAffiliate.verificationStatus,
+                commissionRate: masterAffiliate.commissionRate,
+                depositRate: masterAffiliate.depositRate,
+                totalEarnings: masterAffiliate.totalEarnings,
+                pendingEarnings: masterAffiliate.pendingEarnings,
+                paidEarnings: masterAffiliate.paidEarnings,
+                referralCount: masterAffiliate.referralCount,
+                lastLogin: masterAffiliate.lastLogin,
+                createdBy: masterAffiliate.createdBy
+            }
+        });
+
+    } catch (error) {
+        console.error("Master affiliate login error:", error);
+        
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(500).json({
+                success: false,
+                message: "Token generation error"
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: "Internal server error during login"
+        });
+    }
+});
+
+// Check if affiliate referral code exists
+Authrouter.get("/affiliate/check-referral/:code", async (req, res) => {
+    try {
+        const { code } = req.params;
+        
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                message: "Affiliate code is required"
+            });
+        }
+        
+        const affiliate = await Affiliate.findOne({ 
+            affiliateCode: code.toUpperCase(),
+            status: 'active'
+        });
+        
+        if (!affiliate) {
+            return res.status(404).json({
+                success: false,
+                message: "Invalid affiliate code"
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: "Affiliate code is valid",
+            affiliate: {
+                name: affiliate.fullName,
+                company: affiliate.company,
+                affiliateCode: affiliate.affiliateCode
+            }
+        });
+    } catch (error) {
+        console.error("Check affiliate referral error:", error);
         res.status(500).json({
             success: false,
             message: "Internal server error"
         });
     }
 });
-// Affiliate Registration Route
-Authrouter.post("/affiliate/register", async (req, res) => {
-  try {
-    const {
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      company,
-      website,
-      promoMethod,
-      paymentMethod,
-      paymentDetails // This should be the specific payment details for the selected method
-    } = req.body;
-
-    // Validation
-    if (!email || !password || !firstName || !lastName || !phone) {
-      return res.status(400).json({
-        success: false,
-        message: "Email, password, first name, last name, and phone are required"
-      });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters long"
-      });
-    }
-
-    // Validate payment method and details based on selected method
-    if (paymentMethod) {
-      switch (paymentMethod) {
-        case 'bkash':
-        case 'nagad':
-        case 'rocket':
-          if (!paymentDetails?.phoneNumber) {
-            return res.status(400).json({
-              success: false,
-              message: `${paymentMethod} phone number is required`
-            });
-          }
-          if (!/^01[3-9]\d{8}$/.test(paymentDetails.phoneNumber)) {
-            return res.status(400).json({
-              success: false,
-              message: `Invalid ${paymentMethod} phone number. Use format: 01XXXXXXXXX`
-            });
-          }
-          break;
-        
-        case 'binance':
-          if (!paymentDetails?.email) {
-            return res.status(400).json({
-              success: false,
-              message: "Binance email is required"
-            });
-          }
-          if (!/\S+@\S+\.\S+/.test(paymentDetails.email)) {
-            return res.status(400).json({
-              success: false,
-              message: "Binance email is invalid"
-            });
-          }
-          if (!paymentDetails?.walletAddress) {
-            return res.status(400).json({
-              success: false,
-              message: "Binance wallet address is required"
-            });
-          }
-          break;
-        
-        default:
-          return res.status(400).json({
-            success: false,
-            message: "Please select a valid payment method"
-          });
-      }
-    }
-
-    // Check if affiliate already exists
-    const existingAffiliate = await Affiliate.findOne({ 
-      $or: [
-        { email: email.toLowerCase() },
-        { phone: phone }
-      ]
-    });
-
-    if (existingAffiliate) {
-      return res.status(400).json({
-        success: false,
-        message: "Affiliate with this email or phone already exists"
-      });
-    }
-
-    // Prepare payment details for database (match the Mongoose schema structure)
-    const dbPaymentDetails = {};
-    if (paymentMethod && paymentDetails) {
-      // Initialize the payment method object
-      dbPaymentDetails[paymentMethod] = paymentDetails;
-      
-      // Set default accountType for mobile payment methods if not provided
-      if (['bkash', 'nagad', 'rocket'].includes(paymentMethod)) {
-        if (!dbPaymentDetails[paymentMethod].accountType) {
-          dbPaymentDetails[paymentMethod].accountType = 'personal';
-        }
-      }
-    }
-
-    // Create new affiliate
-    const affiliate = new Affiliate({
-      email: email.toLowerCase(),
-      password,
-      firstName,
-      lastName,
-      phone,
-      company: company || '',
-      website: website || '',
-      promoMethod: promoMethod || 'other',
-      paymentMethod: paymentMethod || 'bkash',
-      paymentDetails: dbPaymentDetails,
-      status: 'pending',
-      verificationStatus: 'unverified'
-    });
-
-    await affiliate.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Affiliate registered successfully. Please wait for admin approval.",
-      affiliate: {
-        id: affiliate._id,
-        email: affiliate.email,
-        firstName: affiliate.firstName,
-        lastName: affiliate.lastName,
-        affiliateCode: affiliate.affiliateCode,
-        status: affiliate.status,
-        verificationStatus: affiliate.verificationStatus
-      }
-    });
-
-  } catch (error) {
-    console.error("Registration error:", error);
-    
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Affiliate with this email or phone already exists"
-      });
-    }
-    
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: errors.join(', ')
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: "Internal server error during registration"
-    });
-  }
-});
-
-// Affiliate login
-Authrouter.post("/affiliate/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required"
-      });
-    }
-
-    const affiliate = await Affiliate.findOne({ email: email.toLowerCase() });
-    if (!affiliate) {
-      return res.json({
-        success: false,
-        message: "email or password is worng!"
-      });
-    }
-
-    if (affiliate.status !== 'active') {
-      return res.json({
-        success: false,
-        message: `Your account is ${affiliate.status}. Please wait for admin approval before logging in.`
-      });
-    }
-
-    const isPasswordValid = await affiliate.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.json({
-        success: false,
-        message: "email or password is wrong!"
-      });
-    }
-
-    affiliate.lastLogin = new Date();
-    await affiliate.save();
-
-    const token = jwt.sign(
-      { affiliateId: affiliate._id, email: affiliate.email },
-      AFFILIATE_JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    res.json({
-      success: true,
-      message: "Login successful",
-      token,
-      affiliate: {
-        id: affiliate._id,
-        email: affiliate.email,
-        firstName: affiliate.firstName,
-        lastName: affiliate.lastName,
-        fullName: affiliate.fullName,
-        affiliateCode: affiliate.affiliateCode,
-        status: affiliate.status,
-        verificationStatus: affiliate.verificationStatus,
-        lastLogin: affiliate.lastLogin
-      }
-    });
-
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error during login"
-    });
-  }
-});
-// Master Affiliate Login Route
-Authrouter.post("/master-affiliate/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required"
-      });
-    }
-
-    // Find affiliate with master_affiliate role
-    const masterAffiliate = await MasterAffiliate.findOne({ 
-      email: email.toLowerCase(),
-      role: 'master_affiliate'
-    });
-
-    if (!masterAffiliate) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password"
-      });
-    }
-
-    // Check if master affiliate account is active
-    if (masterAffiliate.status !== 'active') {
-      return res.status(403).json({
-        success: false,
-        message: `Your master affiliate account is ${masterAffiliate.status}. Please contact admin or your super affiliate for activation.`
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await masterAffiliate.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password"
-      });
-    }
-
-    // Update last login
-    masterAffiliate.lastLogin = new Date();
-    await masterAffiliate.save();
-
-    // Generate master affiliate specific JWT token
-    const token = jwt.sign(
-      { 
-        masterAffiliateId: masterAffiliate._id, 
-        email: masterAffiliate.email,
-        role: 'master_affiliate',
-        createdBy: masterAffiliate.createdBy
-      },
-      AFFILIATE_JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    res.json({
-      success: true,
-      message: "Master affiliate login successful",
-      token,
-      masterAffiliate: {
-        id: masterAffiliate._id,
-        email: masterAffiliate.email,
-        firstName: masterAffiliate.firstName,
-        lastName: masterAffiliate.lastName,
-        fullName: masterAffiliate.fullName,
-        affiliateCode: masterAffiliate.affiliateCode,
-        role: masterAffiliate.role,
-        status: masterAffiliate.status,
-        verificationStatus: masterAffiliate.verificationStatus,
-        commissionRate: masterAffiliate.commissionRate,
-        depositRate: masterAffiliate.depositRate,
-        totalEarnings: masterAffiliate.totalEarnings,
-        pendingEarnings: masterAffiliate.pendingEarnings,
-        paidEarnings: masterAffiliate.paidEarnings,
-        referralCount: masterAffiliate.referralCount,
-        lastLogin: masterAffiliate.lastLogin,
-        createdBy: masterAffiliate.createdBy
-      }
-    });
-
-  } catch (error) {
-    console.error("Master affiliate login error:", error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(500).json({
-        success: false,
-        message: "Token generation error"
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: "Internal server error during login"
-    });
-  }
-});
-// Check if affiliate referral code exists
-Authrouter.get("/affiliate/check-referral/:code", async (req, res) => {
-  try {
-    const { code } = req.params;
-    
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: "Affiliate code is required"
-      });
-    }
-    
-    const affiliate = await Affiliate.findOne({ 
-      affiliateCode: code.toUpperCase(),
-      status: 'active'
-    });
-    
-    if (!affiliate) {
-      return res.status(404).json({
-        success: false,
-        message: "Invalid affiliate code"
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      message: "Affiliate code is valid",
-      affiliate: {
-        name: affiliate.fullName,
-        company: affiliate.company,
-        affiliateCode: affiliate.affiliateCode
-      }
-    });
-  } catch (error) {
-    console.error("Check affiliate referral error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
-  }
-});
 
 // Get affiliate profile
 Authrouter.get("/affiliate/profile", async (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Access token required"
-      });
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: "Access token required"
+            });
+        }
+
+        const decoded = jwt.verify(token, AFFILIATE_JWT_SECRET);
+        const affiliate = await Affiliate.findById(decoded.affiliateId);
+
+        if (!affiliate) {
+            return res.status(404).json({
+                success: false,
+                message: "Affiliate not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            affiliate: {
+                id: affiliate._id,
+                email: affiliate.email,
+                firstName: affiliate.firstName,
+                lastName: affiliate.lastName,
+                fullName: affiliate.fullName,
+                phone: affiliate.phone,
+                company: affiliate.company,
+                website: affiliate.website,
+                affiliateCode: affiliate.affiliateCode,
+                commissionRate: affiliate.commissionRate,
+                totalEarnings: affiliate.totalEarnings,
+                pendingEarnings: affiliate.pendingEarnings,
+                paidEarnings: affiliate.paidEarnings,
+                referralCount: affiliate.referralCount,
+                clickCount: affiliate.clickCount,
+                isActive: affiliate.isActive,
+                isVerified: affiliate.isVerified,
+                paymentMethod: affiliate.paymentMethod,
+                minimumPayout: affiliate.minimumPayout,
+                lastLogin: affiliate.lastLogin,
+                createdAt: affiliate.createdAt
+            }
+        });
+    } catch (error) {
+        console.error("Get affiliate profile error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
     }
-
-    const decoded = jwt.verify(token, AFFILIATE_JWT_SECRET);
-    const affiliate = await Affiliate.findById(decoded.affiliateId);
-
-    if (!affiliate) {
-      return res.status(404).json({
-        success: false,
-        message: "Affiliate not found"
-      });
-    }
-
-    res.json({
-      success: true,
-      affiliate: {
-        id: affiliate._id,
-        email: affiliate.email,
-        firstName: affiliate.firstName,
-        lastName: affiliate.lastName,
-        fullName: affiliate.fullName,
-        phone: affiliate.phone,
-        company: affiliate.company,
-        website: affiliate.website,
-        affiliateCode: affiliate.affiliateCode,
-        commissionRate: affiliate.commissionRate,
-        totalEarnings: affiliate.totalEarnings,
-        pendingEarnings: affiliate.pendingEarnings,
-        paidEarnings: affiliate.paidEarnings,
-        referralCount: affiliate.referralCount,
-        clickCount: affiliate.clickCount,
-        isActive: affiliate.isActive,
-        isVerified: affiliate.isVerified,
-        paymentMethod: affiliate.paymentMethod,
-        minimumPayout: affiliate.minimumPayout,
-        lastLogin: affiliate.lastLogin,
-        createdAt: affiliate.createdAt
-      }
-    });
-  } catch (error) {
-    console.error("Get affiliate profile error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
-  }
 });
 
 // Check if regular user referral code exists
 Authrouter.get("/check-referral/:code", async (req, res) => {
-  try {
-    const { code } = req.params;
-    
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: "Referral code is required"
-      });
+    try {
+        const { code } = req.params;
+        
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                message: "Referral code is required"
+            });
+        }
+        
+        const user = await User.findOne({ referralCode: code });
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "Invalid referral code"
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: "Referral code is valid",
+            referrer: {
+                username: user.username,
+                player_id: user.player_id
+            }
+        });
+    } catch (error) {
+        console.error("Check referral error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
     }
-    
-    const user = await User.findOne({ referralCode: code });
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "Invalid referral code"
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      message: "Referral code is valid",
-      referrer: {
-        username: user.username,
-        player_id: user.player_id
-      }
-    });
-  } catch (error) {
-    console.error("Check referral error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
-  }
 });
 
 // Track affiliate click
 Authrouter.post("/track-click", async (req, res) => {
-  try {
-    const { affiliateCode, source, campaign, medium, landingPage } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.get('User-Agent') || 'unknown';
+    try {
+        const { affiliateCode, source, campaign, medium, landingPage } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('User-Agent') || 'unknown';
 
-    if (!affiliateCode) {
-      return res.status(400).json({
-        success: false,
-        error: "Affiliate code is required"
-      });
-    }
-
-    const affiliate = await Affiliate.findOne({
-      affiliateCode: affiliateCode.toUpperCase(),
-      status: 'active'
-    });
-
-    if (!affiliate) {
-      return res.status(404).json({
-        success: false,
-        error: "Invalid affiliate code"
-      });
-    }
-
-    // Generate unique click ID
-    const clickId = 'CLK' + Math.random().toString(36).substr(2, 12).toUpperCase();
-
-    // Update affiliate's click count
-    await Affiliate.findByIdAndUpdate(affiliate._id, {
-      $inc: { clickCount: 1 }
-    });
-
-    // Save click data to ClickTrack if available
-    const clickData = new ClickTrack({
-      affiliateId: affiliate._id,
-      affiliateCode: affiliateCode.toUpperCase(),
-      clickId,
-      source: source || 'direct',
-      campaign: campaign || 'general',
-      medium: medium || 'referral',
-      landingPage: landingPage || '/register',
-      ipAddress,
-      userAgent,
-      timestamp: new Date()
-    });
-    await clickData.save();
-
-    // Set cookies for tracking (30 days)
-    res.cookie('affiliate_ref', affiliateCode.toUpperCase(), {
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
-    });
-
-    res.cookie('click_id', clickId, {
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
-    });
-
-    res.json({
-      success: true,
-      message: "Click tracked successfully",
-      clickId,
-      affiliate: {
-        name: affiliate.fullName,
-        code: affiliate.affiliateCode
-      }
-    });
-
-  } catch (error) {
-    console.error("Track click error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error"
-    });
-  }
-});
-
-Authrouter.post("/signup", async (req, res) => {
-  try {
-    const { currency, phone, username, password, confirmPassword, fullName, email, referralCode, affiliateCode } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.get('User-Agent') || 'unknown';
-
-    // Validation checks (unchanged)
-    if (!phone || !username || !password || !confirmPassword) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Phone, username, password, and confirm password are required" 
-      });
-    }
-
-    if (!/^1[0-9]{9}$/.test(phone)) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Please enter a valid Bangladeshi phone number, starting with 1." 
-      });
-    }
-
-    if (!/^[a-z0-9_]+$/.test(username)) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Username can only contain lowercase letters, numbers, and underscores." 
-      });
-    }
-
-    if (username.length < 3) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Username must be at least 3 characters long." 
-      });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Password must be at least 6 characters long." 
-      });
-    }
-
-    if (password !== confirmPassword) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Passwords do not match." 
-      });
-    }
-
-    // Handle regular user referral (manual input)
-    let referredBy = null;
-    if (referralCode) {
-      const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
-      if (!referrer) {
-        return res.status(400).json({ 
-          success: false,
-          error: "Invalid referral code" 
-        });
-      }
-      referredBy = referrer._id;
-    }
-
-    // Check if user already exists
-    const existingUser = await User.findOne({
-      $or: [{ username }, { phone: `+880${phone}` }, { email }]
-    });
-
-    if (existingUser) {
-      if (existingUser.username === username) {
-        return res.status(400).json({ 
-          success: false,
-          error: "Username already exists." 
-        });
-      }
-      if (existingUser.phone === `+880${phone}`) {
-        return res.status(400).json({ 
-          success: false,
-          error: "Phone number already registered." 
-        });
-      }
-      if (email && existingUser.email === email) {
-        return res.status(400).json({ 
-          success: false,
-          error: "Email already registered." 
-        });
-      }
-    }
-
-    // Generate a unique player_id
-    let player_id;
-    let isUnique = false;
-    
-    while (!isUnique) {
-      player_id = 'PL' + Math.random().toString(36).substr(2, 8).toUpperCase();
-      const existingPlayer = await User.findOne({ player_id });
-      if (!existingPlayer) {
-        isUnique = true;
-      }
-    }
-
-    // Create registration source tracking
-    const registrationSource = {
-      type: referredBy ? 'user_referral' : affiliateCode ? 'affiliate_referral' : 'direct',
-      source: 'website',
-      medium: 'organic',
-      campaign: 'signup',
-      userReferralCode: referralCode,
-      affiliateCode: affiliateCode,
-      landingPage: '/register',
-      ipAddress,
-      userAgent,
-      timestamp: new Date()
-    };
-
-    // Create new user
-    const newUser = new User({
-      currency: currency || "BDT",
-      phone: `+880${phone}`,
-      username,
-      password,
-      fullName,
-      player_id,
-      referredBy,
-      registrationSource
-    });
-
-    await newUser.save();
-
-    // ------------------affiliate-part-----------------------
-    let affiliateId = null;
-    if (affiliateCode) {
-      // Find the affiliate directly using the affiliate code
-      const affiliate = await Affiliate.findOne({ 
-        affiliateCode: affiliateCode.toUpperCase(),
-        status: 'active' 
-      });
-
-      if (!affiliate) {
-        return res.status(400).json({ 
-          success: false,
-          error: "Invalid affiliate code" 
-        });
-      }
-
-      affiliateId = affiliate._id;
-      
-      // Ensure CPA rate is a valid number
-      const registrationBonus = Number(affiliate.cpaRate) || 0;
-      
-      // Clean up any invalid earningsHistory entries first
-      // Remove entries that are missing required fields
-      const validEarningsHistory = affiliate.earningsHistory.filter(earning => 
-        earning && 
-        earning.sourceAmount !== undefined && 
-        earning.sourceType !== undefined && 
-        earning.sourceId !== undefined && 
-        earning.referredUser !== undefined
-      );
-      
-      // Create the earning record with all required fields
-      const earningRecord = {
-        amount: registrationBonus,
-        type: 'registration_bonus',
-        description: 'New user registration bonus',
-        status: 'pending',
-        referredUser: newUser._id,
-        sourceId: newUser._id,
-        sourceType: 'registration',
-        commissionRate: 1,
-        sourceAmount: registrationBonus,
-        calculatedAmount: registrationBonus,
-        earnedAt: new Date(),
-        metadata: { currency: 'BDT' }
-      };
-      
-      // Add the new valid record
-      validEarningsHistory.push(earningRecord);
-      
-      // Update the affiliate with clean history and new record
-      await Affiliate.findByIdAndUpdate(affiliate._id, {
-        $set: {
-          earningsHistory: validEarningsHistory
-        },
-        $inc: { 
-          totalEarnings: registrationBonus,
-          pendingEarnings: registrationBonus,
-          referralCount: 1
-        },
-        $push: {
-          referredUsers: {
-            user: newUser._id,
-            joinedAt: new Date(),
-            earnedAmount: registrationBonus,
-            userStatus: 'active',
-            lastActivity: new Date()
-          }
+        if (!affiliateCode) {
+            return res.status(400).json({
+                success: false,
+                error: "Affiliate code is required"
+            });
         }
-      }, { 
-        runValidators: true,
-        new: true 
-      });
 
-      console.log(`Affiliate commission recorded: Affiliate ${affiliate._id} earned ${registrationBonus} BDT`);
-    }
+        const affiliate = await Affiliate.findOne({
+            affiliateCode: affiliateCode.toUpperCase(),
+            status: 'active'
+        });
 
-    // Update regular user referrer's count if applicable
-    if (referredBy) {
-      try {
-        await User.findByIdAndUpdate(referredBy, {
-          $inc: { 
-            referralCount: 1,
-            referralEarnings: 50 // Example: 50 taka bonus for regular referral
-          },
-          $push: {
-            referralUsers: {
-              username:newUser.username,
-              user: newUser._id,
-              joinedAt: new Date(),
-              earnedAmount: 50
+        if (!affiliate) {
+            return res.status(404).json({
+                success: false,
+                error: "Invalid affiliate code"
+            });
+        }
+
+        const clickId = 'CLK' + Math.random().toString(36).substr(2, 12).toUpperCase();
+
+        await Affiliate.findByIdAndUpdate(affiliate._id, {
+            $inc: { clickCount: 1 }
+        });
+
+        // Try to save click data if ClickTrack model exists
+        try {
+            const ClickTrack = require('../models/ClickTrack');
+            const clickData = new ClickTrack({
+                affiliateId: affiliate._id,
+                affiliateCode: affiliateCode.toUpperCase(),
+                clickId,
+                source: source || 'direct',
+                campaign: campaign || 'general',
+                medium: medium || 'referral',
+                landingPage: landingPage || '/register',
+                ipAddress,
+                userAgent,
+                timestamp: new Date()
+            });
+            await clickData.save();
+        } catch (error) {
+            console.log('ClickTrack model not found or error saving:', error.message);
+        }
+
+        res.cookie('affiliate_ref', affiliateCode.toUpperCase(), {
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+        });
+
+        res.cookie('click_id', clickId, {
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+        });
+
+        res.json({
+            success: true,
+            message: "Click tracked successfully",
+            clickId,
+            affiliate: {
+                name: affiliate.fullName,
+                code: affiliate.affiliateCode
             }
-          }
         });
 
-        // Add bonus to referrer's account
-        await User.findByIdAndUpdate(referredBy, {
-          $inc: { balance: 50 }
+    } catch (error) {
+        console.error("Track click error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Internal server error"
         });
-
-        console.log(`User referral recorded: ${referredBy} earned 50 taka for referral`);
-
-      } catch (referralError) {
-        console.error('Error recording user referral:', referralError);
-        // Don't fail the user registration if referral tracking fails
-      }
     }
-
-    // Update login information for the new user
-    newUser.login_count = 1;
-    newUser.last_login = new Date();
-    newUser.first_login = false;
-    await newUser.save();
-
-    // Create a login log entry
-    const { deviceType, browser, os } = getDeviceInfo(userAgent);
-    
-    const loginLog = new LoginLog({
-      userId: newUser._id,
-      username: newUser.username,
-      ipAddress,
-      userAgent,
-      deviceType,
-      browser,
-      os,
-      status: 'success',
-      failureReason: null
-    });
-    
-    await loginLog.save();
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: newUser._id, username: newUser.username },
-      JWT_SECRET,
-      { expiresIn: "30d" }
-    );
-
-    // Return success response with token
-    res.status(201).json({
-      success: true,
-      message: "User created successfully",
-      token,
-      user: {
-        id: newUser._id,
-        player_id: newUser.player_id,
-        username: newUser.username,
-        email: newUser.email,
-        phone: newUser.phone,
-        currency: newUser.currency,
-        balance: newUser.balance,
-        referralCode: newUser.referralCode,
-        affiliateId: affiliateId,
-        first_login: newUser.first_login,
-        login_count: newUser.login_count,
-        last_login: newUser.last_login,
-        isUserReferred: !!referredBy,
-        isAffiliateReferred: !!affiliateId
-      }
-    });
-  } catch (error) {
-    console.error("Signup error:", error);
-    res.status(500).json({ 
-      success: false,
-      error: "Internal server error" 
-    });
-  }
 });
+
+// Signup route (with OTP)
+Authrouter.post("/signup", async (req, res) => {
+    try {
+        const { currency, phone, username, password, confirmPassword, fullName, email, referralCode, affiliateCode } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('User-Agent') || 'unknown';
+
+        if (!phone || !username || !password || !confirmPassword) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Phone, username, password, and confirm password are required" 
+            });
+        }
+
+        if (!/^1[0-9]{9}$/.test(phone)) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Please enter a valid Bangladeshi phone number, starting with 1." 
+            });
+        }
+
+        if (!/^[a-z0-9_]+$/.test(username)) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Username can only contain lowercase letters, numbers, and underscores." 
+            });
+        }
+
+        if (username.length < 3) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Username must be at least 3 characters long." 
+            });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Password must be at least 6 characters long." 
+            });
+        }
+
+        if (password !== confirmPassword) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Passwords do not match." 
+            });
+        }
+
+        let referredBy = null;
+        if (referralCode) {
+            const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
+            if (!referrer) {
+                return res.status(400).json({ 
+                    success: false,
+                    error: "Invalid referral code" 
+                });
+            }
+            referredBy = referrer._id;
+        }
+
+        const existingUser = await User.findOne({
+            $or: [{ username }, { phone: `+88${phone}` }, { email }]
+        });
+
+        if (existingUser) {
+            if (existingUser.username === username) {
+                return res.status(400).json({ 
+                    success: false,
+                    error: "Username already exists." 
+                });
+            }
+            if (existingUser.phone === `+88${phone}`) {
+                return res.status(400).json({ 
+                    success: false,
+                    error: "Phone number already registered." 
+                });
+            }
+            if (email && existingUser.email === email) {
+                return res.status(400).json({ 
+                    success: false,
+                    error: "Email already registered." 
+                });
+            }
+        }
+
+        let player_id;
+        let isUnique = false;
+        
+        while (!isUnique) {
+            player_id = 'PL' + Math.random().toString(36).substr(2, 8).toUpperCase();
+            const existingPlayer = await User.findOne({ player_id });
+            if (!existingPlayer) {
+                isUnique = true;
+            }
+        }
+
+        const registrationSource = {
+            type: referredBy ? 'user_referral' : affiliateCode ? 'affiliate_referral' : 'direct',
+            source: 'website',
+            medium: 'organic',
+            campaign: 'signup',
+            userReferralCode: referralCode,
+            affiliateCode: affiliateCode,
+            landingPage: '/register',
+            ipAddress,
+            userAgent,
+            timestamp: new Date()
+        };
+
+        const newUser = new User({
+            currency: currency || "BDT",
+            phone: `+88${phone}`,
+            username,
+            password,
+            fullName,
+            player_id,
+            referredBy,
+            registrationSource
+        });
+
+        await newUser.save();
+
+        let affiliateId = null;
+        if (affiliateCode) {
+            const affiliate = await Affiliate.findOne({ 
+                affiliateCode: affiliateCode.toUpperCase(),
+                status: 'active' 
+            });
+
+            if (!affiliate) {
+                return res.status(400).json({ 
+                    success: false,
+                    error: "Invalid affiliate code" 
+                });
+            }
+
+            affiliateId = affiliate._id;
+            
+            const registrationBonus = Number(affiliate.cpaRate) || 0;
+            
+            const validEarningsHistory = affiliate.earningsHistory.filter(earning => 
+                earning && 
+                earning.sourceAmount !== undefined && 
+                earning.sourceType !== undefined && 
+                earning.sourceId !== undefined && 
+                earning.referredUser !== undefined
+            );
+            
+            const earningRecord = {
+                amount: registrationBonus,
+                type: 'registration_bonus',
+                description: 'New user registration bonus',
+                status: 'pending',
+                referredUser: newUser._id,
+                sourceId: newUser._id,
+                sourceType: 'registration',
+                commissionRate: 1,
+                sourceAmount: registrationBonus,
+                calculatedAmount: registrationBonus,
+                earnedAt: new Date(),
+                metadata: { currency: 'BDT' }
+            };
+            
+            validEarningsHistory.push(earningRecord);
+            
+            await Affiliate.findByIdAndUpdate(affiliate._id, {
+                $set: {
+                    earningsHistory: validEarningsHistory
+                },
+                $inc: { 
+                    totalEarnings: registrationBonus,
+                    pendingEarnings: registrationBonus,
+                    referralCount: 1
+                },
+                $push: {
+                    referredUsers: {
+                        user: newUser._id,
+                        joinedAt: new Date(),
+                        earnedAmount: registrationBonus,
+                        userStatus: 'active',
+                        lastActivity: new Date()
+                    }
+                }
+            }, { 
+                runValidators: true,
+                new: true 
+            });
+
+            console.log(`Affiliate commission recorded: Affiliate ${affiliate._id} earned ${registrationBonus} BDT`);
+        }
+
+        if (referredBy) {
+            try {
+                await User.findByIdAndUpdate(referredBy, {
+                    $inc: { 
+                        referralCount: 1,
+                        referralEarnings: 50
+                    },
+                    $push: {
+                        referralUsers: {
+                            username: newUser.username,
+                            user: newUser._id,
+                            joinedAt: new Date(),
+                            earnedAmount: 50
+                        }
+                    }
+                });
+
+                await User.findByIdAndUpdate(referredBy, {
+                    $inc: { balance: 50 }
+                });
+
+                console.log(`User referral recorded: ${referredBy} earned 50 taka for referral`);
+
+            } catch (referralError) {
+                console.error('Error recording user referral:', referralError);
+            }
+        }
+
+        newUser.login_count = 1;
+        newUser.last_login = new Date();
+        newUser.first_login = false;
+        await newUser.save();
+
+        const { deviceType, browser, os } = getDeviceInfo(userAgent);
+        
+        const LoginLog = require('../models/LoginLog');
+        const loginLog = new LoginLog({
+            userId: newUser._id,
+            username: newUser.username,
+            ipAddress,
+            userAgent,
+            deviceType,
+            browser,
+            os,
+            status: 'success',
+            failureReason: null
+        });
+        
+        await loginLog.save();
+
+        const token = jwt.sign(
+            { userId: newUser._id, username: newUser.username },
+            JWT_SECRET,
+            { expiresIn: "30d" }
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "User created successfully",
+            token,
+            user: {
+                id: newUser._id,
+                player_id: newUser.player_id,
+                username: newUser.username,
+                email: newUser.email,
+                phone: newUser.phone,
+                currency: newUser.currency,
+                balance: newUser.balance,
+                referralCode: newUser.referralCode,
+                affiliateId: affiliateId,
+                first_login: newUser.first_login,
+                login_count: newUser.login_count,
+                last_login: newUser.last_login,
+                isUserReferred: !!referredBy,
+                isAffiliateReferred: !!affiliateId
+            }
+        });
+    } catch (error) {
+        console.error("Signup error:", error);
+        res.status(500).json({ 
+            success: false,
+            error: "Internal server error" 
+        });
+    }
+});
+
 // Get referral statistics
 Authrouter.get("/referral-stats", async (req, res) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "Access denied"
-      });
+    try {
+        const token = req.header('Authorization')?.replace('Bearer ', '');
+        
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                error: "Access denied"
+            });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findById(decoded.userId);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        const stats = {
+            referralCode: user.referralCode,
+            referralCount: user.referralCount,
+            referralEarnings: user.referralEarnings,
+            referralUsers: user.referralUsers.length,
+            referralLink: `${process.env.FRONTEND_URL || 'https://your-site.com'}/register?ref=${user.referralCode}`
+        };
+
+        res.json({
+            success: true,
+            stats
+        });
+    } catch (error) {
+        console.error("Referral stats error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Internal server error"
+        });
     }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.userId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found"
-      });
-    }
-
-    const stats = {
-      referralCode: user.referralCode,
-      referralCount: user.referralCount,
-      referralEarnings: user.referralEarnings,
-      referralUsers: user.referralUsers.length,
-      referralLink: `${process.env.FRONTEND_URL || 'https://your-site.com'}/register?ref=${user.referralCode}`
-    };
-
-    res.json({
-      success: true,
-      stats
-    });
-  } catch (error) {
-    console.error("Referral stats error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error"
-    });
-  }
 });
 
 // Get affiliate statistics
 Authrouter.get("/affiliate-stats", async (req, res) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: "Access denied"
-      });
+    try {
+        const token = req.header('Authorization')?.replace('Bearer ', '');
+        
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                error: "Access denied"
+            });
+        }
+
+        const decoded = jwt.verify(token, AFFILIATE_JWT_SECRET);
+        const affiliate = await Affiliate.findById(decoded.affiliateId);
+
+        if (!affiliate) {
+            return res.status(404).json({
+                success: false,
+                error: "Affiliate not found"
+            });
+        }
+
+        const stats = {
+            affiliateCode: affiliate.affiliateCode,
+            customAffiliateCode: affiliate.customAffiliateCode,
+            totalEarnings: affiliate.totalEarnings,
+            pendingEarnings: affiliate.pendingEarnings,
+            paidEarnings: affiliate.paidEarnings,
+            referralCount: affiliate.referralCount,
+            clickCount: affiliate.clickCount,
+            conversionRate: affiliate.clickCount > 0 ? (affiliate.referralCount / affiliate.clickCount * 100).toFixed(2) : 0,
+            commissionRate: (affiliate.commissionRate * 100).toFixed(1) + '%',
+            referralLinks: {
+                main: `${process.env.FRONTEND_URL || 'https://your-site.com'}/register?aff=${affiliate.affiliateCode}`,
+                deposit: `${process.env.FRONTEND_URL || 'https://your-site.com'}/deposit?aff=${affiliate.affiliateCode}`,
+                sports: `${process.env.FRONTEND_URL || 'https://your-site.com'}/sports?aff=${affiliate.affiliateCode}`
+            }
+        };
+
+        res.json({
+            success: true,
+            stats
+        });
+    } catch (error) {
+        console.error("Affiliate stats error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Internal server error"
+        });
     }
-
-    const decoded = jwt.verify(token, AFFILIATE_JWT_SECRET);
-    const affiliate = await Affiliate.findById(decoded.affiliateId);
-
-    if (!affiliate) {
-      return res.status(404).json({
-        success: false,
-        error: "Affiliate not found"
-      });
-    }
-
-    const stats = {
-      affiliateCode: affiliate.affiliateCode,
-      customAffiliateCode: affiliate.customAffiliateCode,
-      totalEarnings: affiliate.totalEarnings,
-      pendingEarnings: affiliate.pendingEarnings,
-      paidEarnings: affiliate.paidEarnings,
-      referralCount: affiliate.referralCount,
-      clickCount: affiliate.clickCount,
-      conversionRate: affiliate.clickCount > 0 ? (affiliate.referralCount / affiliate.clickCount * 100).toFixed(2) : 0,
-      commissionRate: (affiliate.commissionRate * 100).toFixed(1) + '%',
-      referralLinks: {
-        main: `${process.env.FRONTEND_URL || 'https://your-site.com'}/register?aff=${affiliate.affiliateCode}`,
-        deposit: `${process.env.FRONTEND_URL || 'https://your-site.com'}/deposit?aff=${affiliate.affiliateCode}`,
-        sports: `${process.env.FRONTEND_URL || 'https://your-site.com'}/sports?aff=${affiliate.affiliateCode}`
-      }
-    };
-
-    res.json({
-      success: true,
-      stats
-    });
-  } catch (error) {
-    console.error("Affiliate stats error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error"
-    });
-  }
 });
 
-// Login route - Complete version
+// Login route
 Authrouter.post("/login", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.get('User-Agent') || 'unknown';
+    try {
+        const { username, password } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('User-Agent') || 'unknown';
 
-    // Validation
-    if (!username || !password) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Username and password are required" 
-      });
+        if (!username || !password) {
+            return res.status(400).json({ 
+                success: false,
+                error: "Username and password are required" 
+            });
+        }
+
+        const user = await User.findOne({ username }).select("+password");
+        
+        const { deviceType, browser, os } = getDeviceInfo(userAgent);
+
+        if (!user) {
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: null,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: 'user_not_found'
+            });
+            
+            await loginLog.save();
+            
+            return res.status(401).json({ 
+                success: false,
+                error: "Invalid username or password" 
+            });
+        }
+
+        if (user.status !== 'active') {
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: user._id,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: `account_${user.status}`
+            });
+            
+            await loginLog.save();
+            
+            return res.status(403).json({ 
+                success: false,
+                error: `Your account is ${user.status}. Please contact support.` 
+            });
+        }
+
+        const isPasswordValid = await user.verifyPassword(password);
+        
+        if (!isPasswordValid) {
+            const LoginLog = require('../models/LoginLog');
+            const loginLog = new LoginLog({
+                userId: user._id,
+                username,
+                ipAddress,
+                userAgent,
+                deviceType,
+                browser,
+                os,
+                status: 'failed',
+                failureReason: 'invalid_password'
+            });
+            
+            await loginLog.save();
+            
+            return res.status(401).json({ 
+                success: false,
+                error: "Invalid username or password" 
+            });
+        }
+
+        user.login_count = (user.login_count || 0) + 1;
+        user.last_login = new Date();
+        user.first_login = false;
+        
+        if (!user.loginHistory) {
+            user.loginHistory = [];
+        }
+        
+        user.loginHistory.push({
+            ipAddress,
+            device: deviceType,
+            userAgent,
+            location: 'Unknown',
+            timestamp: new Date()
+        });
+        
+        if (user.loginHistory.length > 10) {
+            user.loginHistory = user.loginHistory.slice(-10);
+        }
+        
+        await user.save();
+
+        const LoginLog = require('../models/LoginLog');
+        const loginLog = new LoginLog({
+            userId: user._id,
+            username,
+            ipAddress,
+            userAgent,
+            deviceType,
+            browser,
+            os,
+            status: 'success',
+            failureReason: null
+        });
+        
+        await loginLog.save();
+
+        const token = jwt.sign(
+            { 
+                userId: user._id, 
+                username: user.username,
+                role: user.role 
+            },
+            JWT_SECRET,
+            { expiresIn: "30d" }
+        );
+
+        res.json({
+            success: true,
+            message: "Login successful",
+            token,
+            user: {
+                id: user._id,
+                player_id: user.player_id,
+                username: user.username,
+                email: user.email,
+                phone: user.phone,
+                currency: user.currency,
+                balance: user.balance,
+                bonusBalance: user.bonusBalance,
+                total_deposit: user.total_deposit,
+                total_withdraw: user.total_withdraw,
+                total_bet: user.total_bet,
+                total_wins: user.total_wins,
+                referralCode: user.referralCode,
+                role: user.role,
+                status: user.status,
+                first_login: user.first_login,
+                login_count: user.login_count,
+                last_login: user.last_login,
+                isPhoneVerified: user.isPhoneVerified,
+                isEmailVerified: user.isEmailVerified,
+                kycStatus: user.kycStatus,
+                language: user.language,
+                themePreference: user.themePreference,
+                avatar: user.avatar,
+                accountAgeInDays: user.accountAgeInDays,
+                isNewUser: user.isNewUser,
+                availableBalance: user.availableBalance,
+                withdrawableAmount: user.withdrawableAmount,
+                wageringStatus: user.wageringStatus,
+                isAffiliateReferred: user.isAffiliateReferred,
+                availableBonuses: user.getAvailableBonusOffers ? user.getAvailableBonusOffers() : []
+            }
+        });
+
+    } catch (error) {
+        console.error("Login error:", error);
+        res.status(500).json({ 
+            success: false,
+            error: "Internal server error during login" 
+        });
     }
-
-    // Find user by username and explicitly select password field
-    const user = await User.findOne({ username }).select("+password");
-    
-    const { deviceType, browser, os } = getDeviceInfo(userAgent);
-
-    // Check if user exists
-    if (!user) {
-      // Create failed login log without userId
-      const loginLog = new LoginLog({
-        userId: null,
-        username,
-        ipAddress,
-        userAgent,
-        deviceType,
-        browser,
-        os,
-        status: 'failed',
-        failureReason: 'user_not_found'
-      });
-      
-      await loginLog.save();
-      
-      return res.status(401).json({ 
-        success: false,
-        error: "Invalid username or password" 
-      });
-    }
-
-    // Check if user is active
-    if (user.status !== 'active') {
-      // Create failed login log
-      const loginLog = new LoginLog({
-        userId: user._id,
-        username,
-        ipAddress,
-        userAgent,
-        deviceType,
-        browser,
-        os,
-        status: 'failed',
-        failureReason: `account_${user.status}`
-      });
-      
-      await loginLog.save();
-      
-      return res.status(403).json({ 
-        success: false,
-        error: `Your account is ${user.status}. Please contact support.` 
-      });
-    }
-
-    // Verify password using the method from your User model
-    const isPasswordValid = await user.verifyPassword(password);
-    
-    if (!isPasswordValid) {
-      // Create failed login log
-      const loginLog = new LoginLog({
-        userId: user._id,
-        username,
-        ipAddress,
-        userAgent,
-        deviceType,
-        browser,
-        os,
-        status: 'failed',
-        failureReason: 'invalid_password'
-      });
-      
-      await loginLog.save();
-      
-      return res.status(401).json({ 
-        success: false,
-        error: "Invalid username or password" 
-      });
-    }
-
-    // Update user login information
-    user.login_count = (user.login_count || 0) + 1;
-    user.last_login = new Date();
-    user.first_login = false;
-    
-    // Add login history
-    if (!user.loginHistory) {
-      user.loginHistory = [];
-    }
-    
-    user.loginHistory.push({
-      ipAddress,
-      device: deviceType,
-      userAgent,
-      location: 'Unknown', // You can add IP geolocation later
-      timestamp: new Date()
-    });
-    
-    // Keep only last 10 login history entries
-    if (user.loginHistory.length > 10) {
-      user.loginHistory = user.loginHistory.slice(-10);
-    }
-    
-    await user.save();
-
-    // Create successful login log
-    const loginLog = new LoginLog({
-      userId: user._id,
-      username,
-      ipAddress,
-      userAgent,
-      deviceType,
-      browser,
-      os,
-      status: 'success',
-      failureReason: null
-    });
-    
-    await loginLog.save();
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user._id, 
-        username: user.username,
-        role: user.role 
-      },
-      JWT_SECRET,
-      { expiresIn: "30d" }
-    );
-
-    // Return success response with user data (excluding sensitive information)
-    res.json({
-      success: true,
-      message: "Login successful",
-      token,
-      user: {
-        id: user._id,
-        player_id: user.player_id,
-        username: user.username,
-        email: user.email,
-        phone: user.phone,
-        currency: user.currency,
-        balance: user.balance,
-        bonusBalance: user.bonusBalance,
-        total_deposit: user.total_deposit,
-        total_withdraw: user.total_withdraw,
-        total_bet: user.total_bet,
-        total_wins: user.total_wins,
-        referralCode: user.referralCode,
-        role: user.role,
-        status: user.status,
-        first_login: user.first_login,
-        login_count: user.login_count,
-        last_login: user.last_login,
-        isPhoneVerified: user.isPhoneVerified,
-        isEmailVerified: user.isEmailVerified,
-        kycStatus: user.kycStatus,
-        language: user.language,
-        themePreference: user.themePreference,
-        avatar: user.avatar,
-        // Virtual fields
-        accountAgeInDays: user.accountAgeInDays,
-        isNewUser: user.isNewUser,
-        availableBalance: user.availableBalance,
-        withdrawableAmount: user.withdrawableAmount,
-        wageringStatus: user.wageringStatus,
-        isAffiliateReferred: user.isAffiliateReferred,
-        // Bonus offers if applicable
-        availableBonuses: user.getAvailableBonusOffers ? user.getAvailableBonusOffers() : []
-      }
-    });
-
-  } catch (error) {
-    console.error("Login error:", error);
-    
-    // Log the error but don't expose internal details
-    res.status(500).json({ 
-      success: false,
-      error: "Internal server error during login" 
-    });
-  }
 });
-
 
 module.exports = Authrouter;
