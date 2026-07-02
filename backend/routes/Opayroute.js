@@ -442,15 +442,7 @@ module.exports = function opayApi(settingsCollection) {
         bank
       } = payload;
 
-      console.log("OraclePay Callback received:", {
-        status,
-        invoice_number,
-        amount,
-        transaction_id,
-        session_code,
-        user_identity,
-        bank
-      });
+      console.log("OraclePay Callback received:", req.body);
 
       // ALWAYS respond with 'OK' first
       res.status(200).send('OK');
