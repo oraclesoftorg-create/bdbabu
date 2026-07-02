@@ -422,526 +422,547 @@ module.exports = function opayApi(settingsCollection) {
   });
 
   // OraclePay Callback webhook endpoint (with coin bonus)
-  router.post("/oraclepay-callback", async (req, res) => {
+// OraclePay Callback webhook endpoint (with coin bonus)
+router.post("/oraclepay-callback", async (req, res) => {
+  try {
+    const db = req.app.locals?.db;
+    if (!db) {
+      return res.status(500).json({ success: false, message: "Database not initialized" });
+    }
+
+    const payload = req.body || {};
+    
+    console.log("OraclePay Callback received:", payload);
+
+    // ALWAYS respond with 'OK' first
+    res.status(200).send('OK');
+
+    // Collections
+    const oraclePayDepositCol = db.collection("OraclePay-deposit");
+    const usersCol = db.collection("users");
+    const depositsCol = db.collection("deposits");
+    const ObjectId = require('mongodb').ObjectId;
+
+    // Ensure unique index on transaction_id
     try {
-      const db = req.app.locals?.db;
-      if (!db) {
-        return res.status(500).json({ success: false, message: "Database not initialized" });
-      }
+      await oraclePayDepositCol.createIndex({ trxid: 1 }, { unique: true, sparse: true });
+      await oraclePayDepositCol.createIndex({ token: 1 }, { sparse: true });
+    } catch (e) {
+      // ignore if already exists
+    }
 
-      const payload = req.body || {};
-      const {
-        status,
-        invoice_number,
-        amount,
-        transaction_id,
-        session_code,
-        user_identity,
-        checkout_items,
-        footprint,
-        bank
-      } = payload;
+    // Map the actual callback data to expected fields
+    const {
+      success,
+      userIdentifyAddress,
+      time,
+      method,
+      token,
+      amount,
+      from,
+      trxid,
+      deviceName,
+      deviceId,
+      bdTimeZone
+    } = payload;
 
-      console.log("OraclePay Callback received:", req.body);
-
-      // ALWAYS respond with 'OK' first
-      res.status(200).send('OK');
-
-      // Collections
-      const oraclePayDepositCol = db.collection("OraclePay-deposit");
-      const usersCol = db.collection("users");
-      const depositsCol = db.collection("deposits");
-      const ObjectId = require('mongodb').ObjectId;
-
-      // Ensure unique index on transaction_id
-      try {
-        await oraclePayDepositCol.createIndex({ transaction_id: 1 }, { unique: true, sparse: true });
-        await oraclePayDepositCol.createIndex({ session_code: 1 }, { sparse: true });
-      } catch (e) {
-        // ignore if already exists
-      }
-
-      // Only process COMPLETED payments
-      if (status !== "COMPLETED") {
-        console.log(`Payment not completed: ${status}`);
-        
-        await oraclePayDepositCol.insertOne({
-          ...payload,
-          receivedAt: new Date(),
-          processed: false,
-          reason: `STATUS_${status}`
-        }).catch(err => {
-          if (err.code !== 11000) console.error("Error saving non-completed payload:", err);
-        });
-        
-        return;
-      }
-
-      // Validate required fields
-      if (!transaction_id || !user_identity || !amount || amount <= 0) {
-        console.error("Missing required fields in completed payment:", {
-          transaction_id,
-          user_identity,
-          amount
-        });
-        
-        await oraclePayDepositCol.insertOne({
-          ...payload,
-          receivedAt: new Date(),
-          processed: false,
-          reason: "MISSING_REQUIRED_FIELDS"
-        }).catch(err => {
-          if (err.code !== 11000) console.error("Error saving invalid payload:", err);
-        });
-        
-        return;
-      }
-
-      // Check for duplicate transaction
-      const existing = await oraclePayDepositCol.findOne({ transaction_id });
-      if (existing && existing.processed === true) {
-        console.log(`Duplicate webhook for transaction: ${transaction_id} - already processed`);
-        return;
-      }
-
-      // Save incoming payload
-      const baseDoc = {
+    // Only process successful payments
+    if (success !== true) {
+      console.log(`Payment not successful: ${success}`);
+      
+      await oraclePayDepositCol.insertOne({
         ...payload,
         receivedAt: new Date(),
         processed: false,
-        checkout_items: checkout_items || {},
-        bank: bank || 'unknown'
-      };
+        reason: `PAYMENT_NOT_SUCCESSFUL`
+      }).catch(err => {
+        if (err.code !== 11000) console.error("Error saving non-successful payload:", err);
+      });
+      
+      return;
+    }
 
-      let insertedId = null;
-      try {
-        const insertResult = await oraclePayDepositCol.insertOne(baseDoc);
-        insertedId = insertResult.insertedId;
-        console.log(`Saved OraclePay callback with ID: ${insertedId}`);
-      } catch (err) {
-        if (err.code === 11000) {
-          console.log(`Duplicate transaction_id: ${transaction_id} - already exists`);
-          return;
-        }
-        console.error("Error saving payload:", err);
+    // Validate required fields
+    if (!trxid || !userIdentifyAddress || !amount || amount <= 0) {
+      console.error("Missing required fields in successful payment:", {
+        trxid,
+        userIdentifyAddress,
+        amount
+      });
+      
+      await oraclePayDepositCol.insertOne({
+        ...payload,
+        receivedAt: new Date(),
+        processed: false,
+        reason: "MISSING_REQUIRED_FIELDS"
+      }).catch(err => {
+        if (err.code !== 11000) console.error("Error saving invalid payload:", err);
+      });
+      
+      return;
+    }
+
+    // Check for duplicate transaction
+    const existing = await oraclePayDepositCol.findOne({ trxid });
+    if (existing && existing.processed === true) {
+      console.log(`Duplicate webhook for transaction: ${trxid} - already processed`);
+      return;
+    }
+
+    // Save incoming payload
+    const baseDoc = {
+      ...payload,
+      receivedAt: new Date(),
+      processed: false,
+      method: method || 'unknown',
+      deviceName: deviceName || 'unknown',
+      deviceId: deviceId || 'unknown',
+      bdTimeZone: bdTimeZone || new Date().toISOString()
+    };
+
+    let insertedId = null;
+    try {
+      const insertResult = await oraclePayDepositCol.insertOne(baseDoc);
+      insertedId = insertResult.insertedId;
+      console.log(`Saved OraclePay callback with ID: ${insertedId}`);
+    } catch (err) {
+      if (err.code === 11000) {
+        console.log(`Duplicate trxid: ${trxid} - already exists`);
         return;
       }
+      console.error("Error saving payload:", err);
+      return;
+    }
 
-      // Process the payment
-      const amountNum = Number(amount);
-      let userId = null;
-      let user = null;
+    // Process the payment
+    const amountNum = Number(amount);
+    let userId = null;
+    let user = null;
 
-      // Extract user ID from user_identity
-      if (user_identity && user_identity.includes('-')) {
-        const parts = user_identity.split('-');
-        if (parts.length >= 1) {
-          const possibleUserId = parts[0];
-          try {
-            if (ObjectId.isValid(possibleUserId)) {
-              user = await usersCol.findOne({ _id: new ObjectId(possibleUserId) });
-              if (user) userId = user._id;
-            }
-          } catch (err) {
-            console.log("Error finding user by ID from user_identity:", err.message);
-          }
-        }
-      }
-
-      // Try other methods to find user...
-      if (!user && invoice_number && invoice_number.startsWith('INV-')) {
-        const parts = invoice_number.split('-');
-        if (parts.length >= 2) {
-          const possibleUserId = parts[1];
-          try {
-            if (ObjectId.isValid(possibleUserId)) {
-              user = await usersCol.findOne({ _id: new ObjectId(possibleUserId) });
-              if (user) userId = user._id;
-            }
-          } catch (err) {
-            console.log("Error finding user by ID from invoice_number:", err.message);
-          }
-        }
-      }
-
-      if (!user && checkout_items && checkout_items.userId) {
+    // Extract user ID from userIdentifyAddress
+    if (userIdentifyAddress && userIdentifyAddress.includes('-')) {
+      const parts = userIdentifyAddress.split('-');
+      if (parts.length >= 1) {
+        const possibleUserId = parts[0];
         try {
-          if (ObjectId.isValid(checkout_items.userId)) {
-            user = await usersCol.findOne({ _id: new ObjectId(checkout_items.userId) });
+          if (ObjectId.isValid(possibleUserId)) {
+            user = await usersCol.findOne({ _id: new ObjectId(possibleUserId) });
             if (user) userId = user._id;
           }
         } catch (err) {
-          console.log("Error finding user by checkout_items.userId:", err.message);
+          console.log("Error finding user by ID from userIdentifyAddress:", err.message);
         }
       }
+    }
 
-      if (!user) {
-        user = await usersCol.findOne({ username: user_identity });
-        if (user) userId = user._id;
-      }
+    // Try other methods to find user...
+    if (!user) {
+      // Try to find user by username (if userIdentifyAddress contains username)
+      user = await usersCol.findOne({ username: userIdentifyAddress });
+      if (user) userId = user._id;
+    }
 
-      if (!user) {
-        user = await usersCol.findOne({ email: user_identity });
-        if (user) userId = user._id;
-      }
+    if (!user) {
+      user = await usersCol.findOne({ email: userIdentifyAddress });
+      if (user) userId = user._id;
+    }
 
-      if (!user) {
-        user = await usersCol.findOne({ phone: user_identity });
-        if (user) userId = user._id;
-      }
+    if (!user) {
+      user = await usersCol.findOne({ phone: userIdentifyAddress });
+      if (user) userId = user._id;
+    }
 
-      if (!user) {
-        console.error(`User not found for user_identity: ${user_identity}`);
-        
-        await oraclePayDepositCol.updateOne(
-          { _id: insertedId },
-          { 
-            $set: { 
-              processed: false, 
-              reason: "USER_NOT_FOUND",
-              user_identity: user_identity,
-              invoice_number: invoice_number,
-              checkedAt: new Date() 
-            } 
-          }
-        );
-        
-        return;
-      }
-
-      console.log(`Found user: ${user.username} (${user._id})`);
-
-      // Find the original deposit record
-      let originalDeposit = null;
+    if (!user) {
+      console.error(`User not found for userIdentifyAddress: ${userIdentifyAddress}`);
       
-      if (checkout_items && checkout_items.userId) {
-        originalDeposit = await depositsCol.findOne({
-          userId: user._id,
-          status: "pending",
-          "checkoutItems.userId": user._id.toString()
-        });
-      }
+      await oraclePayDepositCol.updateOne(
+        { _id: insertedId },
+        { 
+          $set: { 
+            processed: false, 
+            reason: "USER_NOT_FOUND",
+            userIdentifyAddress: userIdentifyAddress,
+            checkedAt: new Date() 
+          } 
+        }
+      );
+      
+      return;
+    }
 
-      if (!originalDeposit && invoice_number) {
-        originalDeposit = await depositsCol.findOne({
-          userId: user._id,
-          status: "pending",
-          invoiceNumber: invoice_number
-        });
-      }
+    console.log(`Found user: ${user.username} (${user._id})`);
 
-      if (!originalDeposit && session_code) {
-        originalDeposit = await depositsCol.findOne({
-          userId: user._id,
-          status: "pending",
-          oraclePaySessionCode: session_code
-        });
-      }
+    // Find the original deposit record by token or userIdentifyAddress
+    let originalDeposit = null;
+    
+    if (token) {
+      originalDeposit = await depositsCol.findOne({
+        userId: user._id,
+        status: "pending",
+        oraclePayToken: token
+      });
+    }
 
-      if (!originalDeposit) {
-        originalDeposit = await depositsCol.findOne({
-          userId: user._id,
-          status: "pending"
-        }, {
-          sort: { createdAt: -1 }
-        });
-      }
+    if (!originalDeposit) {
+      originalDeposit = await depositsCol.findOne({
+        userId: user._id,
+        status: "pending",
+        oraclePaySessionCode: token
+      });
+    }
 
-      // Extract bonus information
-      let bonusInfo = {
-        bonusType: 'none',
-        bonusCode: '',
-        bonusAmount: 0,
-        wageringRequirement: 0,
-        method: bank || 'oraclepay'
-      };
+    if (!originalDeposit) {
+      originalDeposit = await depositsCol.findOne({
+        userId: user._id,
+        status: "pending",
+        'checkoutItems.userIdentifyAddress': userIdentifyAddress
+      });
+    }
 
-      if (checkout_items && checkout_items.selectedBonus) {
+    if (!originalDeposit) {
+      originalDeposit = await depositsCol.findOne({
+        userId: user._id,
+        status: "pending",
+        'checkoutItems.userId': user._id.toString()
+      });
+    }
+
+    if (!originalDeposit) {
+      originalDeposit = await depositsCol.findOne({
+        userId: user._id,
+        status: "pending"
+      }, {
+        sort: { createdAt: -1 }
+      });
+    }
+
+    // Extract bonus information
+    let bonusInfo = {
+      bonusType: 'none',
+      bonusCode: '',
+      bonusAmount: 0,
+      wageringRequirement: 0,
+      method: method || 'oraclepay'
+    };
+
+    if (originalDeposit) {
+      if (originalDeposit.checkoutItems && originalDeposit.checkoutItems.selectedBonus) {
+        const selectedBonus = originalDeposit.checkoutItems.selectedBonus;
         bonusInfo = {
-          bonusType: checkout_items.selectedBonus.type || checkout_items.selectedBonus.bonusType || 'none',
-          bonusCode: checkout_items.selectedBonus.code || checkout_items.selectedBonus.bonusCode || '',
-          bonusAmount: Number(checkout_items.selectedBonus.calculatedAmount) || 0,
-          wageringRequirement: Number(checkout_items.selectedBonus.wageringRequirement) || 0,
-          method: checkout_items.method || bank || 'oraclepay'
+          bonusType: selectedBonus.type || selectedBonus.bonusType || 'none',
+          bonusCode: selectedBonus.code || selectedBonus.bonusCode || '',
+          bonusAmount: Number(selectedBonus.calculatedAmount) || 0,
+          wageringRequirement: Number(selectedBonus.wageringRequirement) || 0,
+          method: originalDeposit.checkoutItems.method || method || 'oraclepay'
         };
-      } else if (originalDeposit) {
+      } else {
         bonusInfo = {
           bonusType: originalDeposit.bonusType || 'none',
           bonusCode: originalDeposit.bonusCode || '',
           bonusAmount: Number(originalDeposit.bonusAmount) || 0,
           wageringRequirement: Number(originalDeposit.wageringRequirement) || 0,
-          method: originalDeposit.method || bank || 'oraclepay'
+          method: originalDeposit.method || method || 'oraclepay'
         };
       }
+    }
 
-      // Calculate total credit with bonus
-      const totalCredit = amountNum + bonusInfo.bonusAmount;
+    // Calculate total credit with bonus
+    const totalCredit = amountNum + bonusInfo.bonusAmount;
 
-      // Calculate coin bonus
-      let coinBonus = 0;
-      if (amountNum >= 10000) {
-        coinBonus = 1500;
-      } else if (amountNum >= 5000) {
-        coinBonus = 500;
-      } else if (amountNum >= 1000) {
-        coinBonus = 100;
+    // Calculate coin bonus based on deposit amount
+    let coinBonus = 0;
+    if (amountNum >= 10000) {
+      coinBonus = 1500;
+    } else if (amountNum >= 5000) {
+      coinBonus = 500;
+    } else if (amountNum >= 1000) {
+      coinBonus = 100;
+    }
+    
+    if (coinBonus > 0) {
+      console.log(`🎉 User ${user.username} will receive ${coinBonus} coins for deposit of ${amountNum} BDT`);
+    }
+
+    // Prepare deposit record
+    const depositRecord = {
+      method: bonusInfo.method,
+      amount: amountNum,
+      status: 'completed',
+      transactionId: trxid,
+      sessionCode: token,
+      token: token,
+      from: from || '',
+      time: time || new Date().toLocaleTimeString(),
+      bdTimeZone: bdTimeZone || new Date().toISOString(),
+      deviceName: deviceName || '',
+      deviceId: deviceId || '',
+      method: method,
+      bonusApplied: bonusInfo.bonusAmount > 0,
+      bonusType: bonusInfo.bonusType,
+      bonusAmount: bonusInfo.bonusAmount,
+      bonusCode: bonusInfo.bonusCode,
+      wageringRequirement: bonusInfo.wageringRequirement,
+      orderId: `DEP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      playerbalance: originalDeposit?.playerbalance || user.balance || 0,
+      coinBonus: coinBonus,
+      processedAt: new Date(),
+      completedAt: new Date(),
+      createdAt: new Date()
+    };
+
+    // Update User model if available
+    const matchedUser = await User.findById(user._id);
+    
+    if (matchedUser) {
+      matchedUser.depositamount = amountNum;
+      matchedUser.waigeringneed = bonusInfo.wageringRequirement;
+      matchedUser.total_bet = 0;
+      matchedUser.affiliatedeposit = (matchedUser.affiliatedeposit || 0) + amountNum;
+      await matchedUser.save();
+    }
+
+    // Prepare transaction record
+    const transactionRecord = {
+      type: 'deposit',
+      amount: amountNum,
+      balanceBefore: user.balance || 0,
+      balanceAfter: (user.balance || 0) + totalCredit,
+      description: `Deposit via OraclePay (${method})${bonusInfo.bonusAmount > 0 ? ` with ${bonusInfo.bonusType} bonus` : ''}`,
+      referenceId: trxid,
+      sessionCode: token,
+      metadata: {
+        method,
+        from,
+        time,
+        deviceName,
+        deviceId,
+        bdTimeZone
+      },
+      createdAt: new Date()
+    };
+
+    // Build update operations
+    const updateOperations = {
+      $inc: {
+        balance: totalCredit,
+        total_deposit: amountNum,
+        lifetime_deposit: amountNum
+      },
+      $push: {
+        transactionHistory: transactionRecord
       }
+    };
+
+    // Add coin bonus
+    if (coinBonus > 0) {
+      if (!updateOperations.$inc) {
+        updateOperations.$inc = {};
+      }
+      updateOperations.$inc.coinBalance = coinBonus;
+      updateOperations.$push.coinHistory = {
+        amount: coinBonus,
+        reason: `deposit_bonus_${amountNum}_BDT`,
+        date: new Date(),
+        metadata: {
+          depositAmount: amountNum,
+          transactionId: trxid,
+          sessionCode: token,
+          method: method
+        }
+      };
       
-      if (coinBonus > 0) {
-        console.log(`🎉 User ${user.username} will receive ${coinBonus} coins for deposit of ${amountNum} BDT`);
-      }
+      updateOperations.$push.transactionHistory = {
+        type: "coin_bonus",
+        amount: coinBonus,
+        balanceBefore: user.coinBalance || 0,
+        balanceAfter: (user.coinBalance || 0) + coinBonus,
+        description: `Deposit bonus: ${coinBonus} coins for depositing ${amountNum} BDT via ${method}`,
+        referenceId: trxid,
+        metadata: {
+          depositAmount: amountNum,
+          sessionCode: token,
+          method: method
+        },
+        createdAt: new Date()
+      };
+    }
 
-      // Prepare deposit record
-      const depositRecord = {
-        method: bonusInfo.method,
-        amount: amountNum,
-        status: 'completed',
-        transactionId: transaction_id,
-        sessionCode: session_code,
-        bank: bank,
-        invoiceNumber: invoice_number,
-        bonusApplied: bonusInfo.bonusAmount > 0,
+    // Handle bonus
+    if (bonusInfo.bonusAmount > 0) {
+      updateOperations.$inc.bonusBalance = bonusInfo.bonusAmount;
+
+      const bonusActivityLog = {
         bonusType: bonusInfo.bonusType,
         bonusAmount: bonusInfo.bonusAmount,
-        bonusCode: bonusInfo.bonusCode,
-        wageringRequirement: bonusInfo.wageringRequirement,
-        orderId: `DEP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        paymentUrl: footprint || '',
-        playerbalance: originalDeposit?.playerbalance || user.balance || 0,
-        coinBonus: coinBonus,
-        processedAt: new Date(),
-        completedAt: new Date(),
-        createdAt: new Date()
+        depositAmount: amountNum,
+        sessionCode: token,
+        transactionId: trxid,
+        activatedAt: new Date(),
+        status: 'active'
       };
-
-      // Update User model if available
-      const matchedUser = await User.findById(user._id);
       
-      if (matchedUser) {
-        matchedUser.depositamount = amountNum;
-        matchedUser.waigeringneed = bonusInfo.wageringRequirement;
-        matchedUser.total_bet = 0;
-        matchedUser.affiliatedeposit = (matchedUser.affiliatedeposit || 0) + amountNum;
-        await matchedUser.save();
+      if (bonusInfo.bonusCode) {
+        bonusActivityLog.bonusCode = bonusInfo.bonusCode;
       }
+      
+      if (!updateOperations.$push.bonusActivityLogs) {
+        updateOperations.$push.bonusActivityLogs = [];
+      }
+      updateOperations.$push.bonusActivityLogs = bonusActivityLog;
 
-      // Prepare transaction record
-      const transactionRecord = {
-        type: 'deposit',
-        amount: amountNum,
-        balanceBefore: user.balance || 0,
-        balanceAfter: (user.balance || 0) + totalCredit,
-        description: `Deposit via OraclePay (${bank})${bonusInfo.bonusAmount > 0 ? ` with ${bonusInfo.bonusType} bonus` : ''}`,
-        referenceId: transaction_id,
-        sessionCode: session_code,
-        metadata: {
-          bank,
-          invoice_number,
-          footprint
-        },
-        createdAt: new Date()
+      const activeBonusRecord = {
+        bonusType: bonusInfo.bonusType,
+        amount: bonusInfo.bonusAmount,
+        originalAmount: bonusInfo.bonusAmount,
+        wageringRequirement: bonusInfo.wageringRequirement > 0 ? bonusInfo.wageringRequirement : 
+                            bonusInfo.bonusType === 'first_deposit' ? 30 : 
+                            bonusInfo.bonusType === 'special_bonus' ? 30 : 3,
+        amountWagered: 0,
+        sessionCode: token,
+        transactionId: trxid,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: 'active'
       };
-
-      // Build update operations
-      const updateOperations = {
-        $inc: {
-          balance: totalCredit,
-          total_deposit: amountNum,
-          lifetime_deposit: amountNum
-        },
-        $push: {
-          transactionHistory: transactionRecord
-        }
-      };
-
-      // Add coin bonus
-      if (coinBonus > 0) {
-        updateOperations.$inc.coinBalance = coinBonus;
-        updateOperations.$push.coinHistory = {
-          amount: coinBonus,
-          reason: `deposit_bonus_${amountNum}_BDT`,
-          date: new Date(),
-          metadata: {
-            depositAmount: amountNum,
-            transactionId: transaction_id,
-            sessionCode: session_code,
-            bank: bank
-          }
-        };
-        
-        updateOperations.$push.transactionHistory = {
-          type: "coin_bonus",
-          amount: coinBonus,
-          balanceBefore: user.coinBalance || 0,
-          balanceAfter: (user.coinBalance || 0) + coinBonus,
-          description: `Deposit bonus: ${coinBonus} coins for depositing ${amountNum} BDT via ${bank}`,
-          referenceId: transaction_id,
-          metadata: {
-            depositAmount: amountNum,
-            sessionCode: session_code
-          },
-          createdAt: new Date()
-        };
+      
+      if (bonusInfo.bonusCode) {
+        activeBonusRecord.bonusCode = bonusInfo.bonusCode;
       }
-
-      // Handle bonus
-      if (bonusInfo.bonusAmount > 0) {
-        updateOperations.$inc.bonusBalance = bonusInfo.bonusAmount;
-
-        const bonusActivityLog = {
-          bonusType: bonusInfo.bonusType,
-          bonusAmount: bonusInfo.bonusAmount,
-          depositAmount: amountNum,
-          sessionCode: session_code,
-          transactionId: transaction_id,
-          activatedAt: new Date(),
-          status: 'active'
-        };
-        
-        if (bonusInfo.bonusCode) {
-          bonusActivityLog.bonusCode = bonusInfo.bonusCode;
-        }
-        
-        updateOperations.$push.bonusActivityLogs = bonusActivityLog;
-
-        const activeBonusRecord = {
-          bonusType: bonusInfo.bonusType,
-          amount: bonusInfo.bonusAmount,
-          originalAmount: bonusInfo.bonusAmount,
-          wageringRequirement: bonusInfo.wageringRequirement > 0 ? bonusInfo.wageringRequirement : 
-                              bonusInfo.bonusType === 'first_deposit' ? 30 : 
-                              bonusInfo.bonusType === 'special_bonus' ? 30 : 3,
-          amountWagered: 0,
-          sessionCode: session_code,
-          transactionId: transaction_id,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          status: 'active'
-        };
-        
-        if (bonusInfo.bonusCode) {
-          activeBonusRecord.bonusCode = bonusInfo.bonusCode;
-        }
-        
-        if (!user.bonusInfo || !user.bonusInfo.activeBonuses) {
-          updateOperations.$set = updateOperations.$set || {};
-          updateOperations.$set["bonusInfo.activeBonuses"] = [];
-        }
-        
-        updateOperations.$push["bonusInfo.activeBonuses"] = activeBonusRecord;
-
-        if (bonusInfo.bonusType === 'first_deposit') {
-          updateOperations.$set = updateOperations.$set || {};
-          updateOperations.$set["bonusInfo.firstDepositBonusClaimed"] = true;
-        }
+      
+      if (!user.bonusInfo || !user.bonusInfo.activeBonuses) {
+        updateOperations.$set = updateOperations.$set || {};
+        updateOperations.$set["bonusInfo.activeBonuses"] = [];
       }
-
-      // Execute the update
-      const updateResult = await usersCol.updateOne(
-        { _id: user._id },
-        updateOperations
-      );
-
-      if (updateResult.modifiedCount === 0) {
-        throw new Error("Failed to update user record");
+      
+      if (!updateOperations.$push["bonusInfo.activeBonuses"]) {
+        updateOperations.$push["bonusInfo.activeBonuses"] = [];
       }
+      updateOperations.$push["bonusInfo.activeBonuses"] = activeBonusRecord;
 
-      console.log(`✅ User balance updated: +${totalCredit} (${amountNum} + ${bonusInfo.bonusAmount} bonus)`);
-      if (coinBonus > 0) {
-        console.log(`✅ Added ${coinBonus} coins to user ${user.username} for deposit of ${amountNum} BDT`);
+      if (bonusInfo.bonusType === 'first_deposit') {
+        updateOperations.$set = updateOperations.$set || {};
+        updateOperations.$set["bonusInfo.firstDepositBonusClaimed"] = true;
       }
-
-      // Update deposit record
-      if (originalDeposit && originalDeposit._id) {
-        await depositsCol.updateOne(
-          { _id: originalDeposit._id },
-          {
-            $set: {
-              status: "completed",
-              transactionId: transaction_id,
-              sessionCode: session_code,
-              bank: bank,
-              coinBonus: coinBonus,
-              completedAt: new Date(),
-              updatedAt: new Date()
-            }
-          }
-        );
-        console.log(`Updated deposit record: ${originalDeposit._id}`);
-      }
-
-      // Update user's depositHistory
-      await usersCol.updateOne(
-        { 
-          _id: user._id,
-          "depositHistory.status": "pending"
-        },
-        {
-          $set: {
-            "depositHistory.$[elem].status": "completed",
-            "depositHistory.$[elem].transactionId": transaction_id,
-            "depositHistory.$[elem].sessionCode": session_code,
-            "depositHistory.$[elem].bank": bank,
-            "depositHistory.$[elem].coinBonus": coinBonus,
-            "depositHistory.$[elem].completedAt": new Date(),
-            "depositHistory.$[elem].processedAt": new Date()
-          }
-        },
-        {
-          arrayFilters: [{ "elem.status": "pending" }],
-          multi: false,
-          sort: { "elem.createdAt": -1 }
-        }
-      );
-
-      // Add the new completed deposit to history
-      await usersCol.updateOne(
-        { _id: user._id },
-        {
-          $push: {
-            depositHistory: {
-              $each: [depositRecord],
-              $position: 0,
-              $slice: 20
-            }
-          }
-        }
-      );
-
-      // Mark as processed in OraclePay collection
-      await oraclePayDepositCol.updateOne(
-        { _id: insertedId },
-        {
-          $set: {
-            processed: true,
-            processedAt: new Date(),
-            userId: user._id,
-            username: user.username,
-            amount: amountNum,
-            bonusAmount: bonusInfo.bonusAmount,
-            coinBonus: coinBonus,
-            totalCredit: totalCredit,
-            bank: bank,
-            userData: {
-              previousBalance: user.balance || 0,
-              newBalance: (user.balance || 0) + totalCredit,
-              previousBonusBalance: user.bonusBalance || 0,
-              newBonusBalance: (user.bonusBalance || 0) + bonusInfo.bonusAmount,
-              previousCoinBalance: user.coinBalance || 0,
-              newCoinBalance: (user.coinBalance || 0) + coinBonus
-            },
-            bonusDetails: bonusInfo
-          }
-        }
-      );
-
-      console.log(`✅ Successfully processed OraclePay payment for user ${user.username}: ${amountNum} ${bank} + ${coinBonus} coins`);
-
-    } catch (err) {
-      console.error("OraclePay callback processing error:", err);
     }
-  });
 
+    // Execute the update
+    const updateResult = await usersCol.updateOne(
+      { _id: user._id },
+      updateOperations
+    );
+
+    if (updateResult.modifiedCount === 0) {
+      throw new Error("Failed to update user record");
+    }
+
+    console.log(`✅ User balance updated: +${totalCredit} (${amountNum} + ${bonusInfo.bonusAmount} bonus)`);
+    if (coinBonus > 0) {
+      console.log(`✅ Added ${coinBonus} coins to user ${user.username} for deposit of ${amountNum} BDT`);
+    }
+
+    // Update deposit record
+    if (originalDeposit && originalDeposit._id) {
+      await depositsCol.updateOne(
+        { _id: originalDeposit._id },
+        {
+          $set: {
+            status: "completed",
+            transactionId: trxid,
+            sessionCode: token,
+            token: token,
+            method: method,
+            from: from || '',
+            time: time || new Date().toLocaleTimeString(),
+            bdTimeZone: bdTimeZone || new Date().toISOString(),
+            deviceName: deviceName || '',
+            deviceId: deviceId || '',
+            coinBonus: coinBonus,
+            completedAt: new Date(),
+            updatedAt: new Date()
+          }
+        }
+      );
+      console.log(`Updated deposit record: ${originalDeposit._id}`);
+    }
+
+    // Update user's depositHistory
+    await usersCol.updateOne(
+      { 
+        _id: user._id,
+        "depositHistory.status": "pending"
+      },
+      {
+        $set: {
+          "depositHistory.$[elem].status": "completed",
+          "depositHistory.$[elem].transactionId": trxid,
+          "depositHistory.$[elem].sessionCode": token,
+          "depositHistory.$[elem].token": token,
+          "depositHistory.$[elem].method": method,
+          "depositHistory.$[elem].from": from || '',
+          "depositHistory.$[elem].coinBonus": coinBonus,
+          "depositHistory.$[elem].completedAt": new Date(),
+          "depositHistory.$[elem].processedAt": new Date()
+        }
+      },
+      {
+        arrayFilters: [{ "elem.status": "pending" }],
+        multi: false,
+        sort: { "elem.createdAt": -1 }
+      }
+    );
+
+    // Add the new completed deposit to history
+    await usersCol.updateOne(
+      { _id: user._id },
+      {
+        $push: {
+          depositHistory: {
+            $each: [depositRecord],
+            $position: 0,
+            $slice: 20
+          }
+        }
+      }
+    );
+
+    // Mark as processed in OraclePay collection
+    await oraclePayDepositCol.updateOne(
+      { _id: insertedId },
+      {
+        $set: {
+          processed: true,
+          processedAt: new Date(),
+          userId: user._id,
+          username: user.username,
+          amount: amountNum,
+          bonusAmount: bonusInfo.bonusAmount,
+          coinBonus: coinBonus,
+          totalCredit: totalCredit,
+          method: method,
+          from: from || '',
+          time: time || new Date().toLocaleTimeString(),
+          bdTimeZone: bdTimeZone || new Date().toISOString(),
+          deviceName: deviceName || '',
+          deviceId: deviceId || '',
+          userData: {
+            previousBalance: user.balance || 0,
+            newBalance: (user.balance || 0) + totalCredit,
+            previousBonusBalance: user.bonusBalance || 0,
+            newBonusBalance: (user.bonusBalance || 0) + bonusInfo.bonusAmount,
+            previousCoinBalance: user.coinBalance || 0,
+            newCoinBalance: (user.coinBalance || 0) + coinBonus
+          },
+          bonusDetails: bonusInfo
+        }
+      }
+    );
+
+    console.log(`✅ Successfully processed OraclePay payment for user ${user.username}: ${amountNum} ${method} + ${coinBonus} coins`);
+
+  } catch (err) {
+    console.error("OraclePay callback processing error:", err);
+  }
+});
   // List OraclePay deposits
   router.get("/oraclepay-deposits", async (req, res) => {
     try {
