@@ -71,7 +71,7 @@ import KYCList from './pages/kyc/KYCList'
 import NewCashBonus from './pages/cashbonuses/NewCashBonus'
 import CashBonusList from './pages/cashbonuses/CashBonusList'
 import WeeklyMonthlyBonus from './pages/cashbonuses/WeeklyMonthlyBonus'
-
+import SportsGame from "./pages/games/SportsGames"
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const admin = localStorage.getItem('admin')
@@ -126,6 +126,16 @@ const App = () => {
           element={
             <ProtectedRoute>
               <Newgames />
+            </ProtectedRoute>
+          }
+        />
+                
+        <Route 
+          exact 
+          path="/games-management/sport-games" 
+          element={
+            <ProtectedRoute>
+              <SportsGame />
             </ProtectedRoute>
           }
         />

@@ -253,6 +253,7 @@ const Sidebar = ({ isOpen }) => {
             { to: '/games-management/active-games', text: 'Active Games', requiredPermission: 'manage_active_games' },
             { to: '/games-management/deactive-games', text: 'Deactive Games', requiredPermission: 'manage_deactive_games' },
             { to: '/games-management/menu-games', text: 'Menu Games', requiredPermission: 'manage_menu_games' },
+            { to: '/games-management/sport-games', text: 'Sport Games', requiredPermission: 'manage_sport_games' },
             { to: '/games-management/game-categories', text: 'Game Categories', requiredPermission: 'manage_game_categories' },
             { to: '/games-management/game-providers', text: 'Game Providers', requiredPermission: 'manage_game_providers' },
           ],

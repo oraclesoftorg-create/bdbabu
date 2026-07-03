@@ -15301,5 +15301,285 @@ Adminrouter.get("/oracle/health", async (req, res) => {
   }
 });
 
+// ==================== SPORTS GAME ROUTES ====================
+
+// Import the model at the top of admin.js
+const SportsGame = require("../models/SportsGame");
+
+// Configure multer for sports game images
+const sportsGameStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadPath = "./public/uploads/sports-games/";
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        cb(null, uploadPath);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        cb(null, "sports-game-" + uniqueSuffix + path.extname(file.originalname));
+    },
+});
+
+const uploadSportsGame = multer({
+    storage: sportsGameStorage,
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+    },
+    fileFilter: fileFilter,
+});
+
+// GET all sports games
+Adminrouter.get("/api/admin/sports-games", async (req, res) => {
+    try {
+        const games = await SportsGame.find()
+            .sort({ serial: 1, createdAt: -1 });
+        res.json(games);
+    } catch (error) {
+        console.error("Error fetching sports games:", error);
+        res.status(500).json({ error: "Failed to fetch sports games" });
+    }
+});
+
+// GET single sports game
+Adminrouter.get("/api/admin/sports-games/:id", async (req, res) => {
+    try {
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+        res.json(game);
+    } catch (error) {
+        console.error("Error fetching sports game:", error);
+        res.status(500).json({ error: "Failed to fetch sports game" });
+    }
+});
+
+// POST create new sports game
+Adminrouter.post("/api/admin/sports-games", uploadSportsGame.single("image"), async (req, res) => {
+    try {
+        const { uuid, category, categoryname, name, gameId, provider, status = true } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({ error: "Image is required" });
+        }
+
+        if (!uuid || !category || !categoryname || !name || !gameId || !provider) {
+            if (req.file) {
+                const filePath = path.join(__dirname, "..", "public", "uploads", "sports-games", req.file.filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            return res.status(400).json({
+                error: "UUID, category, category name, game name, game ID, and provider are required"
+            });
+        }
+
+        const lastGame = await SportsGame.findOne().sort({ serial: -1 });
+        const nextSerial = lastGame ? lastGame.serial + 1 : 1;
+
+        const gameData = {
+            uuid: uuid.trim(),
+            image: `/uploads/sports-games/${req.file.filename}`,
+            category: category.trim(),
+            categoryname: categoryname.trim(),
+            name: name.trim(),
+            gameId: gameId.trim(),
+            provider: provider.trim(),
+            serial: nextSerial,
+            status: status === 'true' || status === true
+        };
+
+        const newGame = new SportsGame(gameData);
+        const savedGame = await newGame.save();
+
+        res.status(201).json({
+            message: "Sports game created successfully",
+            game: savedGame
+        });
+    } catch (error) {
+        console.error("Error creating sports game:", error);
+        if (req.file) {
+            const filePath = path.join(__dirname, "..", "public", "uploads", "sports-games", req.file.filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+        }
+        res.status(500).json({ error: "Failed to create sports game" });
+    }
+});
+
+// PUT update sports game
+Adminrouter.put("/api/admin/sports-games/:id", uploadSportsGame.single("image"), async (req, res) => {
+    try {
+        const { uuid, category, categoryname, name, gameId, provider, status, serial } = req.body;
+
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+
+        let oldImagePath = null;
+        if (game.image) {
+            oldImagePath = path.join(__dirname, "..", game.image);
+        }
+
+        if (uuid) game.uuid = uuid.trim();
+        if (category) game.category = category.trim();
+        if (categoryname) game.categoryname = categoryname.trim();
+        if (name) game.name = name.trim();
+        if (gameId) game.gameId = gameId.trim();
+        if (provider) game.provider = provider.trim();
+        if (status !== undefined) game.status = status === 'true' || status === true;
+
+        if (serial !== undefined && serial !== '') {
+            const newSerial = parseInt(serial);
+            if (isNaN(newSerial) || newSerial < 0) {
+                return res.status(400).json({ error: "Serial must be a positive number" });
+            }
+            
+            const oldSerial = game.serial;
+            const maxSerial = await SportsGame.findOne().sort({ serial: -1 });
+            const maxValue = maxSerial ? maxSerial.serial : 0;
+
+            if (newSerial > maxValue + 1 && newSerial !== oldSerial) {
+                return res.status(400).json({ 
+                    error: `Serial number cannot exceed ${maxValue + 1}` 
+                });
+            }
+
+            if (newSerial < oldSerial) {
+                await SportsGame.updateMany(
+                    { serial: { $gte: newSerial, $lt: oldSerial }, _id: { $ne: game._id } },
+                    { $inc: { serial: 1 } }
+                );
+            } else if (newSerial > oldSerial) {
+                await SportsGame.updateMany(
+                    { serial: { $gt: oldSerial, $lte: newSerial }, _id: { $ne: game._id } },
+                    { $inc: { serial: -1 } }
+                );
+            }
+            
+            game.serial = newSerial;
+        }
+
+        if (req.file) {
+            game.image = `/uploads/sports-games/${req.file.filename}`;
+        }
+
+        await game.save();
+
+        if (req.file && oldImagePath && fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+        }
+
+        res.json({
+            message: "Sports game updated successfully",
+            game: game
+        });
+    } catch (error) {
+        console.error("Error updating sports game:", error);
+        if (req.file) {
+            const filePath = path.join(__dirname, "..", "public", "uploads", "sports-games", req.file.filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+        }
+        res.status(500).json({ error: "Failed to update sports game" });
+    }
+});
+
+// PUT update sports game status
+Adminrouter.put("/api/admin/sports-games/:id/status", async (req, res) => {
+    try {
+        const { status } = req.body;
+
+        if (status === undefined || typeof status !== 'boolean') {
+            return res.status(400).json({ error: "Valid status (boolean) is required" });
+        }
+
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+
+        game.status = status;
+        await game.save();
+
+        res.json({
+            message: `Sports game ${status ? 'activated' : 'deactivated'} successfully`,
+            game: game
+        });
+    } catch (error) {
+        console.error("Error updating sports game status:", error);
+        res.status(500).json({ error: "Failed to update sports game status" });
+    }
+});
+
+// PUT reorder sports games (bulk)
+Adminrouter.put("/api/admin/sports-games/reorder", async (req, res) => {
+    try {
+        const { games } = req.body;
+
+        if (!games || !Array.isArray(games) || games.length === 0) {
+            return res.status(400).json({ error: "Games array is required" });
+        }
+
+        const bulkOps = games.map((game, index) => ({
+            updateOne: {
+                filter: { _id: game._id },
+                update: { $set: { serial: index + 1 } }
+            }
+        }));
+
+        await SportsGame.bulkWrite(bulkOps);
+
+        const updatedGames = await SportsGame.find().sort({ serial: 1 });
+
+        res.json({
+            message: "Sports game order updated successfully",
+            games: updatedGames
+        });
+    } catch (error) {
+        console.error("Error reordering sports games:", error);
+        res.status(500).json({ error: "Failed to reorder sports games" });
+    }
+});
+
+// DELETE sports game
+Adminrouter.delete("/api/admin/sports-games/:id", async (req, res) => {
+    try {
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+
+        const deletedSerial = game.serial;
+
+        if (game.image) {
+            const imagePath = path.join(__dirname, "..", game.image);
+            if (fs.existsSync(imagePath)) {
+                fs.unlinkSync(imagePath);
+            }
+        }
+
+        await SportsGame.findByIdAndDelete(req.params.id);
+
+        await SportsGame.updateMany(
+            { serial: { $gt: deletedSerial } },
+            { $inc: { serial: -1 } }
+        );
+
+        res.json({ 
+            message: "Sports game deleted successfully",
+            deletedSerial: deletedSerial
+        });
+    } catch (error) {
+        console.error("Error deleting sports game:", error);
+        res.status(500).json({ error: "Failed to delete sports game" });
+    }
+});
+
 
 module.exports = Adminrouter;
