@@ -1,3 +1,31 @@
+const dns = require("node:dns");
+
+// ========================================
+// 1. DNS Configuration with Retry Logic
+// ========================================
+function setupDNS() {
+  const dnsServers = [
+    ["8.8.8.8", "1.1.1.1"],        // Google & Cloudflare
+    ["9.9.9.9", "149.112.112.112"], // Quad9
+    ["208.67.222.222", "208.67.220.220"], // OpenDNS
+  ];
+
+  for (const servers of dnsServers) {
+    try {
+      dns.setServers(servers);
+      console.log(`✅ DNS configured with: ${servers.join(', ')}`);
+      return true;
+    } catch (error) {
+      console.warn(`⚠️ Failed to set DNS ${servers.join(', ')}:`, error.message);
+    }
+  }
+  
+  console.warn("⚠️ Using system default DNS");
+  return false;
+}
+
+// Initialize DNS
+setupDNS();
 require("dotenv").config();
 const express = require("express");
 const Authrouter = require("./routes/Authrouter");

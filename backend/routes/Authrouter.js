@@ -490,7 +490,6 @@ Authrouter.post("/verify-signup-otp", async (req, res) => {
             username,
             password,
             fullName,
-            email: email || null,
             player_id,
             referredBy,
             registrationSource,
