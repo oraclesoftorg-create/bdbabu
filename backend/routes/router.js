@@ -592,6 +592,7 @@ function getPlatformIcon(platform) {
 // Add this import at the top with other imports
 const Notice = require("../models/Notice");
 const MenuGame = require("../models/MenuGame");
+const SportsGame = require("../models/SportsGame");
 // GET notice (only title)
 router.get("/notice", async (req, res) => {
   try {
@@ -721,8 +722,6 @@ router.get("/games/by-provider/:provider", async (req, res) => {
 });
 
 
-// Add this import at the top with other imports
-const SportsGame = require("../models/SportsGame");
 
 // GET all active sports games (like menu games)
 router.get("/menu-sports-games", async (req, res) => {
