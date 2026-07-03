@@ -242,25 +242,6 @@ const Newgames = () => {
   );
 
   // Search Component
-  const SearchBar = () => (
-    <div className="relative">
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <FaSearch className="h-5 w-5 text-gray-500" />
-      </div>
-      <input
-        type="text"
-        value={searchTerm}
-        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-        placeholder="Search games by name..."
-        className="w-full pl-10 pr-4 py-3 bg-[#161B22] border border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-200 placeholder-gray-500 transition-all duration-200"
-      />
-      {searchTerm && (
-        <button onClick={() => { setSearchTerm(""); setCurrentPage(1); }} className="absolute inset-y-0 right-0 pr-3 flex items-center">
-          <FaTimes className="h-5 w-5 text-gray-500 hover:text-gray-300" />
-        </button>
-      )}
-    </div>
-  );
 
   // Pagination Component
   const Pagination = ({ currentPage, totalPages, onPageChange }) => {
@@ -1407,7 +1388,23 @@ const Newgames = () => {
                 )}
               </div>
               
-              <SearchBar />
+               <div className="relative">
+      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <FaSearch className="h-5 w-5 text-gray-500" />
+      </div>
+      <input
+        type="text"
+        value={searchTerm}
+        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+        placeholder="Search games by name..."
+        className="w-full pl-10 pr-4 py-3 bg-[#161B22] border border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-200 placeholder-gray-500 transition-all duration-200"
+      />
+      {searchTerm && (
+        <button onClick={() => { setSearchTerm(""); setCurrentPage(1); }} className="absolute inset-y-0 right-0 pr-3 flex items-center">
+          <FaTimes className="h-5 w-5 text-gray-500 hover:text-gray-300" />
+        </button>
+      )}
+    </div>
               
               <div className="flex mt-[20px] justify-center w-full gap-[20px]">
                 <CustomSelect
