@@ -112,7 +112,7 @@ const CategoryContent = () => {
   const [displayedGames, setDisplayedGames] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [contentLoading, setContentLoading] = useState(false); // Added for grid skeletons
+  const [contentLoading, setContentLoading] = useState(false);
   const [gamesPage, setGamesPage] = useState(1);
   const [hasMoreGames, setHasMoreGames] = useState(false);
   const [showLoginPopup, setShowLoginPopup] = useState(false);
@@ -120,7 +120,7 @@ const CategoryContent = () => {
   const [gameLoading, setGameLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [dynamicLogo, setDynamicLogo] = useState(logo);
-  const [currentGameType, setCurrentGameType] = useState('exclusive'); // 'exclusive' or 'sports'
+  const [currentContentType, setCurrentContentType] = useState('exclusive'); // 'exclusive', 'sports', 'providers'
 
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: false,
@@ -168,70 +168,40 @@ const CategoryContent = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Sort categories to ensure Exclusive and Sports are always first
-  const sortCategoriesWithPriority = (categories) => {
+  // Sort categories to ensure Exclusive is always first
+  const sortCategoriesWithExclusiveFirst = (categories) => {
     if (!categories || categories.length === 0) return [];
     
-    // Find priority categories
     const exclusiveCategory = categories.find(cat => 
       cat.name.toLowerCase() === "exclusive"
     );
     
-    const sportsCategory = categories.find(cat => 
-      cat.name.toLowerCase() === "sports" || 
-      cat.name.toLowerCase() === "sport"
-    );
+    if (!exclusiveCategory) return categories;
     
-    // Filter out priority categories
+    // Filter out exclusive category and then add it at the beginning
     const otherCategories = categories.filter(cat => 
-      cat.name.toLowerCase() !== "exclusive" && 
-      cat.name.toLowerCase() !== "sports" && 
-      cat.name.toLowerCase() !== "sport"
+      cat.name.toLowerCase() !== "exclusive"
     );
     
-    // Build priority order: Exclusive first, then Sports, then others
-    const priorityCategories = [];
-    if (exclusiveCategory) priorityCategories.push(exclusiveCategory);
-    if (sportsCategory) priorityCategories.push(sportsCategory);
-    
-    return [...priorityCategories, ...otherCategories];
+    return [exclusiveCategory, ...otherCategories];
   };
 
-  // Find and set first category as active (Exclusive or Sports)
-  const setInitialCategoryAsActive = async (categories) => {
-    // First, try to find "Exclusive" category
-    let priorityCategory = categories.find(cat => 
+  // Find and set Exclusive category as active
+  const setExclusiveCategoryAsActive = async (categories) => {
+    // First, try to find "Exclusive" category (case insensitive)
+    let exclusiveCategory = categories.find(cat => 
       cat.name.toLowerCase() === "exclusive"
     );
 
-    // If not found, try to find "Sports" category
-    if (!priorityCategory) {
-      priorityCategory = categories.find(cat => 
-        cat.name.toLowerCase() === "sports" || 
-        cat.name.toLowerCase() === "sport"
-      );
-    }
-
     // If not found, use the first category
-    if (!priorityCategory && categories.length > 0) {
-      priorityCategory = categories[0];
+    if (!exclusiveCategory && categories.length > 0) {
+      exclusiveCategory = categories[0];
     }
 
-    if (priorityCategory) {
-      setActiveCategory(priorityCategory);
-      
-      // Check what type of category it is
-      if (priorityCategory.name.toLowerCase() === "exclusive") {
-        setCurrentGameType('exclusive');
-        await fetchExclusiveGames();
-      } else if (priorityCategory.name.toLowerCase() === "sports" || 
-                 priorityCategory.name.toLowerCase() === "sport") {
-        setCurrentGameType('sports');
-        await fetchSportsGames();
-      } else {
-        setCurrentGameType('providers');
-        await fetchProviders(priorityCategory.name);
-      }
+    if (exclusiveCategory) {
+      setActiveCategory(exclusiveCategory);
+      // Always fetch exclusive games for the Exclusive tab
+      await fetchExclusiveGames();
     }
   };
 
@@ -242,9 +212,9 @@ const CategoryContent = () => {
       
       // If we have cached categories, use them immediately
       if (categoriesCache) {
-        const sortedCategories = sortCategoriesWithPriority(categoriesCache);
+        const sortedCategories = sortCategoriesWithExclusiveFirst(categoriesCache);
         setCategories(sortedCategories);
-        await setInitialCategoryAsActive(sortedCategories);
+        await setExclusiveCategoryAsActive(sortedCategories);
         setLoading(false);
         return;
       }
@@ -261,9 +231,9 @@ const CategoryContent = () => {
   useEffect(() => {
     let gamesToDisplay = [];
     
-    if (currentGameType === 'exclusive') {
+    if (currentContentType === 'exclusive') {
       gamesToDisplay = exclusiveGames;
-    } else if (currentGameType === 'sports') {
+    } else if (currentContentType === 'sports') {
       gamesToDisplay = sportsGames;
     }
     
@@ -278,15 +248,13 @@ const CategoryContent = () => {
       setHasMoreGames(false);
       setGamesPage(1);
     }
-  }, [exclusiveGames, sportsGames, currentGameType, isMobile]);
+  }, [exclusiveGames, sportsGames, currentContentType, isMobile]);
 
   // Calculate games per page based on screen size
   const calculateGamesPerPage = () => {
     if (isMobile) {
-      // Mobile: 2 columns × 4 rows = 8 games initially
       return 9;
     } else {
-      // Desktop: Start with 12 games (2-3 rows depending on columns)
       return 14;
     }
   };
@@ -295,11 +263,10 @@ const CategoryContent = () => {
     try {
       const response = await axios.get(`${base_url}/api/categories`);
       if (response.data.success) {
-        // Sort categories with priority (Exclusive and Sports first), then cache them
-        const sortedCategories = sortCategoriesWithPriority(response.data.data);
+        const sortedCategories = sortCategoriesWithExclusiveFirst(response.data.data);
         categoriesCache = sortedCategories;
         setCategories(sortedCategories);
-        await setInitialCategoryAsActive(sortedCategories);
+        await setExclusiveCategoryAsActive(sortedCategories);
       }
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -309,7 +276,8 @@ const CategoryContent = () => {
   };
 
   const fetchProviders = async (categoryName) => {
-    setContentLoading(true); // Start grid skeleton
+    setContentLoading(true);
+    setCurrentContentType('providers');
     try {
       const response = await axios.get(
         `${base_url}/api/providers/${categoryName}`
@@ -318,18 +286,17 @@ const CategoryContent = () => {
         setProviders(response.data.data);
         setExclusiveGames([]);
         setSportsGames([]);
-        setCurrentGameType('providers');
       }
     } catch (error) {
       console.error("Error fetching providers:", error);
     } finally {
-      setContentLoading(false); // Stop grid skeleton
+      setContentLoading(false);
     }
   };
 
   const fetchExclusiveGames = async () => {
-    setContentLoading(true); // Start grid skeleton
-    setCurrentGameType('exclusive');
+    setContentLoading(true);
+    setCurrentContentType('exclusive');
     try {
       const response = await axios.get(`${base_url}/api/menu-games`);
       
@@ -341,14 +308,12 @@ const CategoryContent = () => {
         gamesData = response.data;
       }
       
-      // Try different possible category name variations
       const exclusiveGamesData = gamesData.filter(game => {
         if (!game) return false;
         
         const categoryName = (game.categoryname || game.category || game.categoryName || '').toLowerCase();
         const gameName = (game.name || game.gameName || '').toLowerCase();
         
-        // Check for exclusive category or exclusive in game name
         return categoryName.includes("exclusive") || 
                categoryName.includes("exlusive") ||
                gameName.includes("exclusive") ||
@@ -362,13 +327,14 @@ const CategoryContent = () => {
       console.error("Error fetching exclusive games:", error);
       setExclusiveGames([]);
     } finally {
-      setContentLoading(false); // Stop grid skeleton
+      setContentLoading(false);
     }
   };
 
+  // NEW: Fetch sports games from menu-sports-games route
   const fetchSportsGames = async () => {
-    setContentLoading(true); // Start grid skeleton
-    setCurrentGameType('sports');
+    setContentLoading(true);
+    setCurrentContentType('sports');
     try {
       const response = await axios.get(`${base_url}/api/menu-sports-games`);
       
@@ -387,21 +353,20 @@ const CategoryContent = () => {
       console.error("Error fetching sports games:", error);
       setSportsGames([]);
     } finally {
-      setContentLoading(false); // Stop grid skeleton
+      setContentLoading(false);
     }
   };
 
   const handleCategoryClick = async (category) => {
-    // Only update if category actually changed
     if (activeCategory?._id === category._id) return;
     
     setActiveCategory(category);
     
-    // Check if this is the Exclusive category (case insensitive)
+    // Check if this is the Exclusive category
     if (category.name.toLowerCase() === "exclusive") {
       await fetchExclusiveGames();
     } 
-    // Check if this is the Sports category (case insensitive)
+    // Check if this is the Sports category
     else if (category.name.toLowerCase() === "sports" || 
              category.name.toLowerCase() === "sport") {
       await fetchSportsGames();
@@ -420,11 +385,29 @@ const CategoryContent = () => {
     }
   };
 
-  // Handle game click - Direct navigation to game page
+  // Handle game click for sports games
+  const handleSportsGameClick = (game) => {
+    setSelectedGame(game);
+    console.log("Selected sports game:", game);
+    
+    // Check if user is logged in
+    if (!user) {
+      setShowLoginPopup(true);
+      return;
+    }
+    
+    // If user is logged in, navigate directly to game
+    if (game.gameApiID || game.gameId || game.uuid) {
+      navigate(`/game/${game.gameApiID || game.gameId || game.uuid}?provider=${game.provider}&category=${game.categoryname}`);
+    } else {
+      toast.error("Game ID not found");
+    }
+  };
+
+  // Handle game click for exclusive games
   const handleGameClick = (game) => {
     setSelectedGame(game);
     console.log("Selected game:", game);
-    console.log("game",game)
     
     // Check if user is logged in
     if (!user) {
@@ -435,39 +418,8 @@ const CategoryContent = () => {
     // If user is logged in, navigate directly to game
     if (game.gameApiID || game.gameId) {
       navigate(`/game/${game.gameApiID || game.gameId}?provider=${game.provider}&category=${game.categoryname}`);
-      
     } else {
       toast.error("Game ID not found");
-    }
-  };
-
-  // Handle opening the game
-  const handleOpenGame = async (game) => {
-    console.log("Attempting to open game:", game);
-
-    // Check if user is logged in
-    if (!user) {
-      toast.error("Please login to play games");
-      setShowLoginPopup(true);
-      return;
-    }
-
-    try {
-      setGameLoading(true);
-      
-      // Direct navigation to game page
-      const gameId = game.gameApiID || game.gameId;
-      if (gameId) {
-        navigate(`/game/${gameId}`);
-      } else {
-        toast.error("Game ID not found");
-      }
-      
-    } catch (err) {
-      console.error("Error:", err);
-      toast.error("Error connecting to game server");
-    } finally {
-      setGameLoading(false);
     }
   };
 
@@ -486,7 +438,7 @@ const CategoryContent = () => {
   const handleShowMore = () => {
     const nextPage = gamesPage + 1;
     const gamesPerLoad = calculateGamesPerPage();
-    let allGames = currentGameType === 'exclusive' ? exclusiveGames : sportsGames;
+    let allGames = currentContentType === 'exclusive' ? exclusiveGames : sportsGames;
     const nextGames = allGames.slice(0, gamesPerLoad * nextPage);
     setDisplayedGames(nextGames);
     setGamesPage(nextPage);
@@ -515,7 +467,22 @@ const CategoryContent = () => {
     };
   }, [showLoginPopup]);
 
-  // Get game image URL
+  // Get game image URL for sports games
+  const getSportsGameImageUrl = (game) => {
+    if (!game) return '';
+    
+    const imagePath = game.image || game.portraitImage || game.thumbnail || '';
+    if (!imagePath) return '';
+    
+    if (imagePath.startsWith('http')) {
+      return imagePath;
+    }
+    
+    const cleanPath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+    return `${base_url}/${cleanPath}`;
+  };
+
+  // Get game image URL for exclusive games
   const getGameImageUrl = (game) => {
     if (!game) return '';
     
@@ -526,68 +493,99 @@ const CategoryContent = () => {
       return imagePath;
     }
     
-    // Remove leading slash if present to avoid double slash
     const cleanPath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
     return `${base_url}/${cleanPath}`;
   };
 
-  // Render provider grid based on the number of providers
-  const renderProviderGrid = () => {
-    // Added: Skeleton loading for the grid content
+  // Render content based on current type
+  const renderContent = () => {
     if (contentLoading) {
-        return (
-          <div className="py-4">
-            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
-              {[...Array(calculateGamesPerPage())].map((_, i) => (
-                <SkeletonItem key={i} type="game" />
-              ))}
-            </div>
-          </div>
-        );
-    }
-
-    if (providers.length === 0 && exclusiveGames.length === 0 && sportsGames.length === 0) {
       return (
-        <div className="p-4 text-center text-[13px] text-white">
-          No content found for this category.
+        <div className="py-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+            {[...Array(12)].map((_, i) => (
+              <div key={i} className="flex justify-start items-center gap-[10px] px-4 py-2 rounded-[3px] bg-[#222424] animate-pulse h-[50px]">
+                <div className="w-[30px] h-[30px] rounded-full bg-[#333]"></div>
+                <div className="h-3 w-20 bg-[#333] rounded"></div>
+              </div>
+            ))}
+          </div>
         </div>
       );
     }
 
-    // Check if active category is Exclusive or Sports (case insensitive)
-    const isExclusiveCategory = activeCategory?.name.toLowerCase() === "exclusive";
-    const isSportsCategory = activeCategory?.name.toLowerCase() === "sports" || 
-                            activeCategory?.name.toLowerCase() === "sport";
+    // Check if we're showing providers
+    if (currentContentType === 'providers') {
+      if (providers.length === 0) {
+        return (
+          <div className="p-4 text-center text-[13px] text-white">
+            No providers found for this category.
+          </div>
+        );
+      }
 
-    // Render games grid for Exclusive or Sports categories
-    if (isExclusiveCategory || isSportsCategory) {
       return (
-        <div className="py-4">
-          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+        <div className="py-[10px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
+            {providers.map((provider) => (
+              <div
+                key={provider._id}
+                className="flex justify-start items-center gap-[10px] px-4 py-2 rounded-[3px] bg-[#222424] hover:bg-[#333333] transition-all cursor-pointer text-white"
+                onClick={() => handleProviderClick(provider)}
+              >
+                <img
+                  src={`${base_url}/${provider.image}`}
+                  alt={provider.name}
+                  className="w-[30px]"
+                  onError={(e) => {
+                    e.target.src = logo;
+                  }}
+                />
+                <span className="text-sm text-gray-400 truncate max-w-[80px]">
+                  {provider.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Check if we're showing sports games (in provider design)
+    if (currentContentType === 'sports') {
+      if (sportsGames.length === 0) {
+        return (
+          <div className="p-4 text-center text-[13px] text-white">
+            No sports games found.
+          </div>
+        );
+      }
+
+      return (
+        <div className="py-[10px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
             {displayedGames.map((game) => (
               <div
-                key={game._id || game.gameId || game.uuid}
-                className="flex flex-col items-center rounded-[8px] overflow-hidden transition-all cursor-pointer hover:border-theme_color hover:shadow-lg group"
-                onClick={() => handleGameClick(game)}
+                key={game._id || game.uuid || game.gameId}
+                className="flex justify-start items-center gap-[10px] px-4 py-2 rounded-[3px] bg-[#222424] hover:bg-[#333333] transition-all cursor-pointer text-white"
+                onClick={() => handleSportsGameClick(game)}
               >
-                {/* Game Image Container with fixed aspect ratio */}
-                <div className="game-image-container w-full mb-2">
-                  <img
-                    src={getGameImageUrl(game)}
-                    alt={game.name || game.gameName}
-                    className="game-image rounded-[6px] transition-transform duration-300 group-hover:scale-105"
-                    onError={(e) => {
-                      e.target.src = logo;
-                    }}
-                  />
-                  {/* Glowing Sweep Animation Overlay */}
-                  <div className="glow-sweep"></div>
-                </div>
+                <img
+                  src={getSportsGameImageUrl(game)}
+                  alt={game.name || game.gameName}
+                  className="w-[30px] h-[30px] object-cover rounded"
+                  onError={(e) => {
+                    e.target.src = logo;
+                  }}
+                />
+                <span className="text-sm text-gray-400 truncate max-w-[80px]">
+                  {game.name || game.gameName}
+                </span>
               </div>
             ))}
           </div>
 
-          {/* More Button - Only show if there are more games to load */}
+          {/* More Button for sports games */}
           {hasMoreGames && displayedGames.length > 0 && (
             <div className="flex justify-center mt-8 mb-4">
               <button
@@ -598,43 +596,59 @@ const CategoryContent = () => {
               </button>
             </div>
           )}
+        </div>
+      );
+    }
 
-          {/* Show message if no games found */}
-          {displayedGames.length === 0 && exclusiveGames.length === 0 && sportsGames.length === 0 && (
-            <div className="text-center py-8 text-gray-400">
-              No games found.
+    // Exclusive games (original grid design with glow)
+    if (currentContentType === 'exclusive') {
+      if (exclusiveGames.length === 0) {
+        return (
+          <div className="p-4 text-center text-[13px] text-white">
+            No exclusive games found.
+          </div>
+        );
+      }
+
+      return (
+        <div className="py-4">
+          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+            {displayedGames.map((game) => (
+              <div
+                key={game._id || game.gameId}
+                className="flex flex-col items-center rounded-[8px] overflow-hidden transition-all cursor-pointer hover:border-theme_color hover:shadow-lg group"
+                onClick={() => handleGameClick(game)}
+              >
+                <div className="game-image-container w-full mb-2">
+                  <img
+                    src={getGameImageUrl(game)}
+                    alt={game.name || game.gameName}
+                    className="game-image rounded-[6px] transition-transform duration-300 group-hover:scale-105"
+                    onError={(e) => {
+                      e.target.src = logo;
+                    }}
+                  />
+                  <div className="glow-sweep"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {hasMoreGames && displayedGames.length > 0 && (
+            <div className="flex justify-center mt-8 mb-4">
+              <button
+                className="px-8 py-3 bg-theme_color hover:bg-theme_color/90 text-white text-sm font-medium transition-all duration-300 hover:shadow-lg hover:shadow-theme_color/30"
+                onClick={handleShowMore}
+              >
+                More Games
+              </button>
             </div>
           )}
         </div>
       );
     }
 
-    // Render providers grid for non-exclusive and non-sports categories
-    return (
-      <div className="py-[10px]">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-3">
-          {providers.map((provider) => (
-            <div
-              key={provider._id}
-              className="flex justify-start items-center gap-[10px] px-4 py-2 rounded-[3px] bg-[#222424] hover:bg-[#333333] transition-all cursor-pointer text-white"
-              onClick={() => handleProviderClick(provider)}
-            >
-              <img
-                src={`${base_url}/${provider.image}`}
-                alt={provider.name}
-                className="w-[30px]"
-                onError={(e) => {
-                  e.target.src = logo;
-                }}
-              />
-               <span className="text-sm text-gray-400 truncate max-w-[80px]">
-            {provider.name}
-          </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return null;
   };
 
   return (
@@ -657,23 +671,21 @@ const CategoryContent = () => {
             object-fit: cover;
           }
 
-          /* MATCHING THE IMAGE: WIDE GLOW & SLOW HIDE */
           .glow-sweep {
             position: absolute;
             top: 0;
             left: -200%;
-            width: 250%; /* Very wide beam as seen in reference */
+            width: 250%;
             height: 100%;
             background: linear-gradient(
               to right,
               transparent 0%,
               rgba(255, 255, 255, 0.02) 20%,
-              rgba(255, 255, 255, 0.35) 50%, /* Strong central light */
+              rgba(255, 255, 255, 0.35) 50%,
               rgba(255, 255, 255, 0.02) 80%,
               transparent 100%
             );
             transform: skewX(-25deg);
-            /* 5s cycle: ~3s sweep + 2s hidden pause */
             animation: sweepWide 5s ease-in-out infinite;
             pointer-events: none;
             z-index: 1;
@@ -696,7 +708,6 @@ const CategoryContent = () => {
 
       {/* Categories section */}
       {loading ? (
-        // SHOW SKELETONS DURING INITIAL LOAD
         <div className="grid grid-cols-4 lg:grid-cols-9 gap-4 pt-[40px] px-2 md:px-0">
           {[...Array(isMobile ? 4 : 9)].map((_, i) => (
             <SkeletonItem key={i} type="category" />
@@ -704,7 +715,7 @@ const CategoryContent = () => {
         </div>
       ) : (
         <>
-          {/* Mobile slider for categories using Embla Carousel */}
+          {/* Mobile slider for categories */}
           <div className="block lg:hidden py-4 md:p-4 pt-[30px] md:pt-[40px] relative hidescrollbar">
             <div className="embla" ref={emblaRef}>
               <div className="embla__container flex gap-3">
@@ -726,7 +737,6 @@ const CategoryContent = () => {
                         e.target.src = logo;
                       }}
                     />
-                    
                     <span
                       className={`text-[13px] md:text-sm mt-4 font-[500] ${
                         activeCategory?._id === category._id
@@ -777,14 +787,13 @@ const CategoryContent = () => {
         </>
       )}
 
-      {/* Content area (providers or exclusive/sports games) */}
-      {renderProviderGrid()}
+      {/* Content area */}
+      {renderContent()}
 
       {/* Login Popup */}
       {showLoginPopup && (
         <div className="fixed inset-0 bg-[rgba(0,0,0,0.4)] bg-opacity-70 backdrop-blur-md flex items-center justify-center z-[10000] p-4">
           <div className="popup-content bg-gradient-to-b cursor-pointer from-[#1a1a1a] to-[#0f0f0f] border border-[#333] rounded-lg p-6 max-w-md w-full relative">
-            {/* Close button */}
             <button
               onClick={() => setShowLoginPopup(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
@@ -805,7 +814,6 @@ const CategoryContent = () => {
               </svg>
             </button>
 
-            {/* Logo */}
             <div className="flex justify-center mb-6">
               <img 
                 src={dynamicLogo} 
@@ -817,13 +825,11 @@ const CategoryContent = () => {
               />
             </div>
 
-            {/* Description */}
             <p className="text-gray-300 text-xs md:text-[15px] text-center mb-6">
               Please log in to play the game. If you don't have an account, sign
               up for free!
             </p>
 
-            {/* Buttons */}
             <div className="flex flex-col gap-3">
               <button
                 onClick={handleRegisterFromPopup}
@@ -847,7 +853,6 @@ const CategoryContent = () => {
       {gameLoading && (
         <div className="fixed inset-0 bg-[rgba(0,0,0,0.7)] flex items-center justify-center z-[1000]">
           <div className="flex flex-col items-center">
-            {/* Animated logo with pulsing effect */}
             <div className="relative mb-8">
               <img
                 src={dynamicLogo}
@@ -857,7 +862,6 @@ const CategoryContent = () => {
                   e.target.src = logo;
                 }}
               />
-              {/* Spinning ring around logo */}
               <div className="absolute -inset-4 border-4 border-theme_color border-t-transparent rounded-full animate-spin"></div>
             </div>
           </div>
@@ -867,7 +871,7 @@ const CategoryContent = () => {
   );
 };
 
-// Main export component that wraps CategoryContent with AuthProvider
+// Main export component
 const Category = () => {
   return (
     <AuthProvider>
