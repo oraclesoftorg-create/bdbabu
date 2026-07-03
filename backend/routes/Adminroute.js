@@ -15330,7 +15330,7 @@ const uploadSportsGame = multer({
 });
 
 // GET all sports games
-Adminrouter.get("/api/admin/sports-games", async (req, res) => {
+Adminrouter.get("/admin/sports-games", async (req, res) => {
     try {
         const games = await SportsGame.find()
             .sort({ serial: 1, createdAt: -1 });
@@ -15342,7 +15342,7 @@ Adminrouter.get("/api/admin/sports-games", async (req, res) => {
 });
 
 // GET single sports game
-Adminrouter.get("/api/admin/sports-games/:id", async (req, res) => {
+Adminrouter.get("/admin/sports-games/:id", async (req, res) => {
     try {
         const game = await SportsGame.findById(req.params.id);
         if (!game) {
@@ -15356,7 +15356,7 @@ Adminrouter.get("/api/admin/sports-games/:id", async (req, res) => {
 });
 
 // POST create new sports game
-Adminrouter.post("/api/admin/sports-games", uploadSportsGame.single("image"), async (req, res) => {
+Adminrouter.post("/admin/sports-games", uploadSportsGame.single("image"), async (req, res) => {
     try {
         const { uuid, category, categoryname, name, gameId, provider, status = true } = req.body;
 
@@ -15411,7 +15411,7 @@ Adminrouter.post("/api/admin/sports-games", uploadSportsGame.single("image"), as
 });
 
 // PUT update sports game
-Adminrouter.put("/api/admin/sports-games/:id", uploadSportsGame.single("image"), async (req, res) => {
+Adminrouter.put("/admin/sports-games/:id", uploadSportsGame.single("image"), async (req, res) => {
     try {
         const { uuid, category, categoryname, name, gameId, provider, status, serial } = req.body;
 
@@ -15491,7 +15491,7 @@ Adminrouter.put("/api/admin/sports-games/:id", uploadSportsGame.single("image"),
 });
 
 // PUT update sports game status
-Adminrouter.put("/api/admin/sports-games/:id/status", async (req, res) => {
+Adminrouter.put("/admin/sports-games/:id/status", async (req, res) => {
     try {
         const { status } = req.body;
 
@@ -15518,7 +15518,7 @@ Adminrouter.put("/api/admin/sports-games/:id/status", async (req, res) => {
 });
 
 // PUT reorder sports games (bulk)
-Adminrouter.put("/api/admin/sports-games/reorder", async (req, res) => {
+Adminrouter.put("/admin/sports-games/reorder", async (req, res) => {
     try {
         const { games } = req.body;
 
@@ -15548,7 +15548,7 @@ Adminrouter.put("/api/admin/sports-games/reorder", async (req, res) => {
 });
 
 // DELETE sports game
-Adminrouter.delete("/api/admin/sports-games/:id", async (req, res) => {
+Adminrouter.delete("/admin/sports-games/:id", async (req, res) => {
     try {
         const game = await SportsGame.findById(req.params.id);
         if (!game) {
