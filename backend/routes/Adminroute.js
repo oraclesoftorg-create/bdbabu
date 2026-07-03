@@ -15303,6 +15303,8 @@ Adminrouter.get("/oracle/health", async (req, res) => {
 
 // ==================== SPORTS GAME ROUTES ====================
 
+// ==================== SPORTS GAME ROUTES ====================
+
 // Import the model at the top of admin.js
 const SportsGame = require("../models/SportsGame");
 
@@ -15329,7 +15331,9 @@ const uploadSportsGame = multer({
     fileFilter: fileFilter,
 });
 
-// GET all sports games
+// ============================================
+// 1. GET all sports games (NO :id)
+// ============================================
 Adminrouter.get("/sports-games", async (req, res) => {
     try {
         const games = await SportsGame.find()
@@ -15341,21 +15345,78 @@ Adminrouter.get("/sports-games", async (req, res) => {
     }
 });
 
-// GET single sports game
-Adminrouter.get("/sports-games/:id", async (req, res) => {
+// ============================================
+// 2. GET sports games by category (NO :id)
+// ============================================
+Adminrouter.get("/sports-games/category/:category", async (req, res) => {
     try {
-        const game = await SportsGame.findById(req.params.id);
-        if (!game) {
-            return res.status(404).json({ error: "Sports game not found" });
+        const { category } = req.params;
+        const { status } = req.query;
+        
+        let filter = { category: category };
+        if (status !== undefined) {
+            filter.status = status === 'true';
         }
-        res.json(game);
+        
+        const games = await SportsGame.find(filter).sort({ serial: 1 });
+        res.json(games);
     } catch (error) {
-        console.error("Error fetching sports game:", error);
-        res.status(500).json({ error: "Failed to fetch sports game" });
+        console.error("Error fetching sports games by category:", error);
+        res.status(500).json({ error: "Failed to fetch sports games" });
     }
 });
 
-// POST create new sports game
+// ============================================
+// 3. GET sports games by status (NO :id)
+// ============================================
+Adminrouter.get("/sports-games/status/:status", async (req, res) => {
+    try {
+        const { status } = req.params;
+        const games = await SportsGame.find({ status: status === 'true' })
+            .sort({ serial: 1 });
+        res.json(games);
+    } catch (error) {
+        console.error("Error fetching sports games by status:", error);
+        res.status(500).json({ error: "Failed to fetch sports games" });
+    }
+});
+
+// ============================================
+// 4. GET sports games stats (NO :id) 
+// ============================================
+Adminrouter.get("/sports-games/stats", async (req, res) => {
+    try {
+        const totalGames = await SportsGame.countDocuments();
+        const activeGames = await SportsGame.countDocuments({ status: true });
+        const inactiveGames = await SportsGame.countDocuments({ status: false });
+        
+        const categoryStats = await SportsGame.aggregate([
+            {
+                $group: {
+                    _id: "$category",
+                    count: { $sum: 1 },
+                    active: {
+                        $sum: { $cond: [{ $eq: ["$status", true] }, 1, 0] }
+                    }
+                }
+            }
+        ]);
+        
+        res.json({
+            total: totalGames,
+            active: activeGames,
+            inactive: inactiveGames,
+            byCategory: categoryStats
+        });
+    } catch (error) {
+        console.error("Error fetching sports game stats:", error);
+        res.status(500).json({ error: "Failed to fetch statistics" });
+    }
+});
+
+// ============================================
+// 5. POST create new sports game (NO :id)
+// ============================================
 Adminrouter.post("/sports-games", uploadSportsGame.single("image"), async (req, res) => {
     try {
         const { uuid, category, categoryname, name, gameId, provider, status = true } = req.body;
@@ -15376,6 +15437,31 @@ Adminrouter.post("/sports-games", uploadSportsGame.single("image"), async (req, 
             });
         }
 
+        // Check for duplicate UUID
+        const existingGame = await SportsGame.findOne({ uuid });
+        if (existingGame) {
+            if (req.file) {
+                const filePath = path.join(__dirname, "..", "public", "uploads", "sports-games", req.file.filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            return res.status(400).json({ error: "Game with this UUID already exists" });
+        }
+
+        // Check for duplicate gameId and provider
+        const existingGameId = await SportsGame.findOne({ gameId, provider });
+        if (existingGameId) {
+            if (req.file) {
+                const filePath = path.join(__dirname, "..", "public", "uploads", "sports-games", req.file.filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            return res.status(400).json({ error: "Game with this ID and provider already exists" });
+        }
+
+        // Get the highest serial number and add 1
         const lastGame = await SportsGame.findOne().sort({ serial: -1 });
         const nextSerial = lastGame ? lastGame.serial + 1 : 1;
 
@@ -15410,7 +15496,141 @@ Adminrouter.post("/sports-games", uploadSportsGame.single("image"), async (req, 
     }
 });
 
-// PUT update sports game
+// ============================================
+// 6. PUT reorder sports games (NO :id) 
+// ============================================
+Adminrouter.put("/sports-games/reorder", async (req, res) => {
+    try {
+        const { games } = req.body;
+
+        if (!games || !Array.isArray(games) || games.length === 0) {
+            return res.status(400).json({ error: "Games array is required" });
+        }
+
+        const bulkOps = games.map((game, index) => ({
+            updateOne: {
+                filter: { _id: game._id },
+                update: { $set: { serial: index + 1 } }
+            }
+        }));
+
+        await SportsGame.bulkWrite(bulkOps);
+
+        const updatedGames = await SportsGame.find().sort({ serial: 1 });
+
+        res.json({
+            message: "Sports game order updated successfully",
+            games: updatedGames
+        });
+    } catch (error) {
+        console.error("Error reordering sports games:", error);
+        res.status(500).json({ error: "Failed to reorder sports games" });
+    }
+});
+
+// ============================================
+// 7. PUT update sports game status (NO :id)
+// ============================================
+Adminrouter.put("/sports-games/:id/status", async (req, res) => {
+    try {
+        const { status } = req.body;
+
+        if (status === undefined || typeof status !== 'boolean') {
+            return res.status(400).json({ error: "Valid status (boolean) is required" });
+        }
+
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+
+        game.status = status;
+        await game.save();
+
+        res.json({
+            message: `Sports game ${status ? 'activated' : 'deactivated'} successfully`,
+            game: game
+        });
+    } catch (error) {
+        console.error("Error updating sports game status:", error);
+        res.status(500).json({ error: "Failed to update sports game status" });
+    }
+});
+
+// ============================================
+// 8. PUT update sports game individual serial (NO :id)
+// ============================================
+Adminrouter.put("/sports-games/:id/serial", async (req, res) => {
+    try {
+        const { serial } = req.body;
+
+        if (serial === undefined || serial < 0) {
+            return res.status(400).json({ error: "Valid serial number is required" });
+        }
+
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+
+        const maxSerial = await SportsGame.findOne().sort({ serial: -1 });
+        const maxValue = maxSerial ? maxSerial.serial : 0;
+
+        if (serial > maxValue + 1) {
+            return res.status(400).json({ 
+                error: `Serial number cannot exceed ${maxValue + 1}` 
+            });
+        }
+
+        const oldSerial = game.serial;
+
+        if (serial < oldSerial) {
+            await SportsGame.updateMany(
+                { serial: { $gte: serial, $lt: oldSerial }, _id: { $ne: game._id } },
+                { $inc: { serial: 1 } }
+            );
+        } else if (serial > oldSerial) {
+            await SportsGame.updateMany(
+                { serial: { $gt: oldSerial, $lte: serial }, _id: { $ne: game._id } },
+                { $inc: { serial: -1 } }
+            );
+        }
+
+        game.serial = serial;
+        await game.save();
+
+        const updatedGames = await SportsGame.find().sort({ serial: 1 });
+
+        res.json({
+            message: "Serial number updated successfully",
+            game,
+            allGames: updatedGames
+        });
+    } catch (error) {
+        console.error("Error updating serial:", error);
+        res.status(500).json({ error: "Failed to update serial number" });
+    }
+});
+
+// ============================================
+// 9. GET single sports game by ID (WITH :id)
+// ============================================
+Adminrouter.get("/sports-games/:id", async (req, res) => {
+    try {
+        const game = await SportsGame.findById(req.params.id);
+        if (!game) {
+            return res.status(404).json({ error: "Sports game not found" });
+        }
+        res.json(game);
+    } catch (error) {
+        console.error("Error fetching sports game:", error);
+        res.status(500).json({ error: "Failed to fetch sports game" });
+    }
+});
+
+// ============================================
+// 10. PUT update sports game (WITH :id)
+// ============================================
 Adminrouter.put("/sports-games/:id", uploadSportsGame.single("image"), async (req, res) => {
     try {
         const { uuid, category, categoryname, name, gameId, provider, status, serial } = req.body;
@@ -15490,64 +15710,9 @@ Adminrouter.put("/sports-games/:id", uploadSportsGame.single("image"), async (re
     }
 });
 
-// PUT update sports game status
-Adminrouter.put("/sports-games/:id/status", async (req, res) => {
-    try {
-        const { status } = req.body;
-
-        if (status === undefined || typeof status !== 'boolean') {
-            return res.status(400).json({ error: "Valid status (boolean) is required" });
-        }
-
-        const game = await SportsGame.findById(req.params.id);
-        if (!game) {
-            return res.status(404).json({ error: "Sports game not found" });
-        }
-
-        game.status = status;
-        await game.save();
-
-        res.json({
-            message: `Sports game ${status ? 'activated' : 'deactivated'} successfully`,
-            game: game
-        });
-    } catch (error) {
-        console.error("Error updating sports game status:", error);
-        res.status(500).json({ error: "Failed to update sports game status" });
-    }
-});
-
-// PUT reorder sports games (bulk)
-Adminrouter.put("/sports-games/reorder", async (req, res) => {
-    try {
-        const { games } = req.body;
-
-        if (!games || !Array.isArray(games) || games.length === 0) {
-            return res.status(400).json({ error: "Games array is required" });
-        }
-
-        const bulkOps = games.map((game, index) => ({
-            updateOne: {
-                filter: { _id: game._id },
-                update: { $set: { serial: index + 1 } }
-            }
-        }));
-
-        await SportsGame.bulkWrite(bulkOps);
-
-        const updatedGames = await SportsGame.find().sort({ serial: 1 });
-
-        res.json({
-            message: "Sports game order updated successfully",
-            games: updatedGames
-        });
-    } catch (error) {
-        console.error("Error reordering sports games:", error);
-        res.status(500).json({ error: "Failed to reorder sports games" });
-    }
-});
-
-// DELETE sports game
+// ============================================
+// 11. DELETE sports game (WITH :id)
+// ============================================
 Adminrouter.delete("/sports-games/:id", async (req, res) => {
     try {
         const game = await SportsGame.findById(req.params.id);
@@ -15580,6 +15745,5 @@ Adminrouter.delete("/sports-games/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to delete sports game" });
     }
 });
-
 
 module.exports = Adminrouter;
