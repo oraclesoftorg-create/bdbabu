@@ -177,15 +177,15 @@ const UserSchema = new Schema({
     affiliateCode: {
         type: String,
     },
-    // Add these fields to your UserSchema in the model file
 
-    // In the BASIC INFORMATION section, add:
-    email: {
-        type: String,
-        unique: true,
-        lowercase: true,
-        trim: true,
-    },
+email: {
+    type: String,
+    unique: true,
+    sparse: true,
+    lowercase: true,
+    trim: true,
+    default: undefined
+},
     fullName: {
         type: String,
         trim: true,
