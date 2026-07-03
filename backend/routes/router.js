@@ -719,4 +719,27 @@ router.get("/games/by-provider/:provider", async (req, res) => {
     });
   }
 });
+
+
+// Add this import at the top with other imports
+const SportsGame = require("../models/SportsGame");
+
+// GET all active sports games (like menu games)
+router.get("/menu-sports-games", async (req, res) => {
+  try {
+    const games = await SportsGame.find({ status: true })
+      .sort({ serial: 1, createdAt: 1 }); // Sort by serial ascending
+    
+    // If you want to add a virtual serial field based on index
+    const gamesWithSerial = games.map((game, index) => ({
+      ...game.toObject(),
+      displaySerial: index + 1 // Virtual serial for display purposes
+    }));
+    
+    res.json(gamesWithSerial);
+  } catch (error) {
+    console.error("Error fetching sports games:", error);
+    res.status(500).json({ error: "Failed to fetch sports games" });
+  }
+});
 module.exports = router;
