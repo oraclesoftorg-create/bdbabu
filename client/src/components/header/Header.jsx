@@ -912,7 +912,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
         
         {/* Live Chat Link */}
         <a
-          href="https://wa.me/+447311133922"
+          href="https://wa.me/601111855711"
           target="_blank"
           rel="noopener noreferrer"
           className="flex-1 ml-3"
@@ -1164,7 +1164,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
           {/* Desktop Live Chat - same as before */}
           <div className="w-full hidden md:flex justify-start items-center px-4 pt-4 pb-3 md:sticky top-0 left-0 bg-[#1A1A1A]">
             <a
-              href="https://wa.me/+447311133922"
+              href="https://wa.me/601111855711"
               target="_blank"
               rel="noopener noreferrer"
               className="block w-full"
