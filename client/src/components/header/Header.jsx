@@ -285,7 +285,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
   const getDefaultSocialLinks = () => [
     {
       platform: "whatsapp",
-      url: "https://wa.me/+447311133922",
+      url: "https://wa.me/601111855711",
       title: t.whatsapp,
       icon: <FaWhatsapp className="w-4 h-4 mr-2" />
     },
@@ -1423,7 +1423,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
                       <div className="grid grid-cols-2 gap-3 p-2">
                         <div
                           className="flex flex-col items-center p-3 rounded-lg cursor-pointer bg-gradient-to-r from-green-900/20 to-green-700/10 border border-green-700/30 hover:scale-105 transition-all duration-200 hover:shadow-lg"
-                          onClick={() => window.open("https://wa.me/+447311133922", "_blank")}
+                          onClick={() => window.open("https://wa.me/601111855711", "_blank")}
                         >
                           <div className="mb-2">
                             <FaWhatsapp className="text-2xl text-green-400" />
