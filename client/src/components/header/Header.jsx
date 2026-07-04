@@ -1563,7 +1563,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
 
       <div className="fixed bottom-25 md:bottom-20 right-4 z-[1000] flex flex-col gap-2">
         <a
-          href="https://t.me/bajiman247"
+          href="https://t.me/BDBABUHelpline"
           target="_blank"
           rel="noopener noreferrer"
           className="transition-all duration-300 animate-bounce hover:animate-pulse"
@@ -1574,7 +1574,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
         </a>
 
         <a
-          href="https://wa.me/+447311133922"
+          href="https://wa.me/601111855711"
           target="_blank"
           rel="noopener noreferrer"
           className="transition-all duration-300 animate-bounce hover:animate-pulse"
