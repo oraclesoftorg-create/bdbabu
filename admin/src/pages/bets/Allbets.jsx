@@ -87,7 +87,7 @@ const Allbets = () => {
           'Authorization': `Bearer ${token}`
         }
       });
-      
+      console.log('API Response:', response.data);
       if (response.data.success) {
         const transformedBets = response.data.data.map((bet, index) => ({
           game_name: bet.game_name,
@@ -118,7 +118,6 @@ const Allbets = () => {
         setPagination(response.data.pagination);
       } else {
         setError('Failed to fetch betting history');
-        toast.error('Failed to fetch betting history');
       }
     } catch (err) {
       console.error('Error fetching betting history:', err);
@@ -300,29 +299,71 @@ const Allbets = () => {
     return rangeWithDots;
   };
 
-  if (error && bets.length === 0) {
-    return (
-      <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
-        <Header toggleSidebar={toggleSidebar} />
-        <div className="flex pt-[10vh]">
-          <Sidebar isOpen={isSidebarOpen} />
-          <main className={`transition-all duration-300 flex-1 p-6 overflow-y-auto h-[90vh] ${isSidebarOpen ? 'md:ml-[40%] lg:ml-[28%] xl:ml-[17%]' : 'ml-0'}`}>
-            <div className="flex justify-center items-center h-full">
-              <div className="text-center">
-                <p className="text-red-500 text-lg mb-4">{error}</p>
+if (bets.length === 0) {
+  return (
+    <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
+      <Header toggleSidebar={toggleSidebar} />
+      <div className="flex pt-[10vh]">
+        <Sidebar isOpen={isSidebarOpen} />
+        <main className={`transition-all duration-300 flex-1 p-6 overflow-y-auto h-[90vh] ${isSidebarOpen ? 'md:ml-[40%] lg:ml-[28%] xl:ml-[17%]' : 'ml-0'}`}>
+          <div className="flex justify-center items-center h-full">
+            <div className="text-center max-w-md">
+              {/* Empty State Illustration */}
+              <div className="mb-8">
+                <svg 
+                  className="w-32 h-32 mx-auto text-gray-600"
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth="1.5" 
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-2xl font-semibold text-gray-200 mb-3">
+                No Bets Found
+              </h2>
+
+              {/* Description */}
+              <p className="text-gray-400 mb-6 leading-relaxed">
+                You haven't placed any bets yet. Start exploring and place your first bet to see your betting history here.
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button 
+                  onClick={() => window.location.href = '/games'}
+                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 shadow-lg shadow-indigo-600/25 font-medium"
+                >
+                  Explore Games
+                </button>
                 <button 
                   onClick={() => fetchBettingHistory(1)}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+                  className="px-6 py-2.5 bg-[#1A1D2E] text-gray-300 rounded-lg hover:bg-[#252940] transition-all duration-300 border border-gray-700 hover:border-gray-600 font-medium"
                 >
-                  Retry
+                  Refresh
                 </button>
               </div>
+
+              {/* Optional: Quick Tips */}
+              <div className="mt-8 pt-6 border-t border-gray-800">
+                <p className="text-xs text-gray-500">
+                  💡 Tip: Check out popular games to get started
+                </p>
+              </div>
             </div>
-          </main>
-        </div>
-      </section>
-    );
-  }
+          </div>
+        </main>
+      </div>
+    </section>
+  );
+}
 
   return (
     <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
