@@ -35,7 +35,7 @@ const Deposit = () => {
   
   const { t } = useContext(LanguageContext);
 
-  const quickAmounts = [100, 300, 500, 1000, 2000, 5000];
+  const quickAmounts = [300, 500, 1000, 2000, 5000];
 
   // Fetch Opay settings
   useEffect(() => {
@@ -247,12 +247,12 @@ const Deposit = () => {
     }
     if (!amount) {
       errors.amount = t.amountRequired || "Amount is required";
-    } else if (parseFloat(amount) < 100) {
-      errors.amount = t.minDepositAmount || "Minimum deposit amount is ৳100";
+    } else if (parseFloat(amount) < 300) {
+      errors.amount = t.minDepositAmount || "Minimum deposit amount is ৳300";
     } else if (!/^\d+$/.test(amount)) {
       errors.amount = t.amountMustBeWholeNumber || "Amount must be a whole number";
-    } else if (parseFloat(amount) < parseFloat(activeMethod?.minAmount || 100)) {
-      errors.amount = `${t.minDepositAmount || "Minimum deposit amount is"} ৳${activeMethod?.minAmount || 100}`;
+    } else if (parseFloat(amount) < parseFloat(activeMethod?.minAmount || 300)) {
+      errors.amount = `${t.minDepositAmount || "Minimum deposit amount is"} ৳${activeMethod?.minAmount || 300}`;
     } else if (parseFloat(amount) > parseFloat(activeMethod?.maxAmount || 50000)) {
       errors.amount = `${t.maxDepositAmount || "Maximum deposit amount is"} ৳${activeMethod?.maxAmount || 50000}`;
     }
