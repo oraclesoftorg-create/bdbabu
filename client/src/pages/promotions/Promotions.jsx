@@ -3,7 +3,7 @@ import Sidebar from "../../components/sidebar/Sidebar";
 import { Header } from "../../components/header/Header";
 import Footer from "../../components/footer/Footer";
 import axios from "axios";
-import { FaRegEdit, FaTrashAlt, FaCircle } from "react-icons/fa";
+import { FaRegEdit, FaTrashAlt, FaCircle, FaTimes } from "react-icons/fa";
 
 const Promotions = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -12,6 +12,7 @@ const Promotions = () => {
   const [activeCategory, setActiveCategory] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expandedPromos, setExpandedPromos] = useState({});
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
 
   // Categories from the image
@@ -34,11 +35,17 @@ const Promotions = () => {
 
   // Helper function to format date
   const formatDate = (dateString) => {
+    if (!dateString) return "N/A";
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, "0");
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
     return `${day}-${month}-${year}`;
+  };
+
+  // Helper function to get category from title or description
+  const getCategory = (promo) => {
+    return "Others";
   };
 
   useEffect(() => {
@@ -47,8 +54,12 @@ const Promotions = () => {
         const response = await axios.get(`${base_url}/api/promotions`);
         console.log(response);
         if (response.data) {
-          setPromotions(response.data.data);
-          setFilteredPromotions(response.data.data);
+          const promotionsWithCategory = response.data.data.map(promo => ({
+            ...promo,
+            category: promo.category || getCategory(promo)
+          }));
+          setPromotions(promotionsWithCategory);
+          setFilteredPromotions(promotionsWithCategory);
         } else {
           setError(response.data.message);
         }
@@ -76,27 +87,36 @@ const Promotions = () => {
     }
   }, [activeCategory, promotions]);
 
+  // Toggle description expansion
+  const toggleDescription = (promoId) => {
+    setExpandedPromos(prev => ({
+      ...prev,
+      [promoId]: !prev[promoId]
+    }));
+  };
+
+  // Check if description is long enough to need truncation
+  const needsTruncation = (description) => {
+    return description && description.length > 100;
+  };
+
   return (
-    <div className="h-screen overflow-hidden font-poppins bg-[#1a1a1a] text-white ">
+    <div className="h-screen overflow-hidden font-poppins bg-[#1a1a1a] text-white">
       {/* Header */}
       <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
       {/* Main Content */}
       <div className="flex h-[calc(100vh-56px)]">
         {/* Sidebar */}
-               <Sidebar sidebarOpen={sidebarOpen} />
-
+        <Sidebar sidebarOpen={sidebarOpen} />
 
         {/* Main Content Area */}
-        <div className={`flex-1 overflow-auto transition-all duration-300 px-4`}>
+        <div className={`flex-1 overflow-auto transition-all duration-300 px-4 pb-[100px]`}>
           <div className="max-w-6xl mx-auto py-8">
             <div className="mb-6 sm:mb-8 flex justify-between items-center">
               <h1 className="text-base sm:text-lg md:text-xl font-[500] text-white">
                 All Promotions
               </h1>
-              {/* <button className="bg-[#3a3a3a] hover:bg-[#4a4a4a] text-white text-xs md:text-sm px-3 py-2 rounded-md flex items-center">
-                Add promotion code
-              </button> */}
             </div>
             
             {/* Category Tabs */}
@@ -137,70 +157,87 @@ const Promotions = () => {
                   No promotions found in this category.
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-                {filteredPromotions.map((promo) => (
-                  <div
-                    key={promo._id}
-                    className="relative bg-[#2a2a2a] rounded-[5px] overflow-hidden flex flex-col items-center transition-all duration-300 transform hover:scale-105"
-                  >
-                    {/* Tag system */}
-                    {promo.tag && (
-                      <div className="absolute top-2 left-2 z-10">
-                        <span className={`text-xs px-2 py-1 rounded-md ${
-                          promo.tag === "NEW" 
-                            ? "bg-red-500 text-white" 
-                            : promo.tag === "DOUBLE" 
-                              ? "bg-blue-500 text-white"
-                              : "bg-yellow-500 text-black"
-                        }`}>
-                          {promo.tag}
-                        </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+                {filteredPromotions.map((promo) => {
+                  const isExpanded = expandedPromos[promo._id] || false;
+                  const shouldTruncate = needsTruncation(promo.description);
+                  const displayDescription = isExpanded 
+                    ? promo.description 
+                    : shouldTruncate 
+                      ? promo.description.slice(0, 100) + '...' 
+                      : promo.description;
+
+                  return (
+                    <div
+                      key={promo._id}
+                      className="relative bg-[#2a2a2a] rounded-[5px] overflow-hidden flex flex-col items-center transition-all duration-300 transform hover:scale-105"
+                    >
+                      {/* Tag system */}
+                      {promo.tag && (
+                        <div className="absolute top-2 left-2 z-10">
+                          <span className={`text-xs px-2 py-1 rounded-md ${
+                            promo.tag === "NEW" 
+                              ? "bg-red-500 text-white" 
+                              : promo.tag === "DOUBLE" 
+                                ? "bg-blue-500 text-white"
+                                : "bg-yellow-500 text-black"
+                          }`}>
+                            {promo.tag}
+                          </span>
+                        </div>
+                      )}
+                      
+                      <a href={promo.targetUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
+                        <img
+                          src={base_url + promo.image}
+                          alt={promo.title}
+                          className="w-full h-44 md:h-44 "
+                        />
+                      </a>
+                      <div className="absolute top-2 right-2 flex items-center space-x-2">
+                        <FaCircle
+                          className={`h-2 w-2 ${
+                            promo.status ? "text-green-500" : "text-red-500"
+                          }`}
+                        />
                       </div>
-                    )}
-                    
-                    <a href={promo.targetUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
-                      <img
-                        src={base_url + promo.image}
-                        alt={promo.title}
-                        className="w-full h-28 sm:h-36 md:h-44 object-cover"
-                      />
-                    </a>
-                    <div className="absolute top-2 right-2 flex items-center space-x-2">
-                      <FaCircle
-                        className={`h-2 w-2 ${
-                          promo.status ? "text-green-500" : "text-red-500"
-                        }`}
-                      />
+                      <div className="w-full p-3 text-left">
+                        <h3 className="text-sm sm:text-base font-[500] mb-1 line-clamp-1">
+                          {promo.title}
+                        </h3>
+                        
+                        {/* Description with Read more/Show less */}
+                        <div className="mb-2">
+                          <p className="text-gray-400 text-xs leading-relaxed">
+                            {displayDescription}
+                          </p>
+                          {shouldTruncate && (
+                            <button
+                              onClick={() => toggleDescription(promo._id)}
+                              className="text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1 font-medium"
+                            >
+                              {isExpanded ? 'Show less' : 'Read more'}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-xs font-light text-gray-500">
+                          <p>
+                            <span className="font-medium">Start:</span>{" "}
+                            {formatDate(promo.startDate)}
+                          </p>
+                          <p>
+                            <span className="font-medium">End:</span>{" "}
+                            {formatDate(promo.endDate)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="w-full p-3 text-left">
-                      <h3 className="text-sm sm:text-base font-[500] mb-1 line-clamp-1">
-                        {promo.title}
-                      </h3>
-                      <p className="text-gray-400 text-xs mb-2 line-clamp-2">
-                        {promo.description}
-                      </p>
-                      <div className="text-xs font-light text-gray-500">
-                        <p>
-                          <span className="font-medium">Start:</span>{" "}
-                          {formatDate(promo.startDate)}
-                        </p>
-                        <p>
-                          <span className="font-medium">End:</span>{" "}
-                          {formatDate(promo.endDate)}
-                        </p>
-                      </div>
-                      <div className="mt-2 flex justify-end">
-                        <button className="text-xs text-blue-400 hover:text-blue-300">
-                          Read more &gt;
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
-          <Footer />
         </div>
       </div>
     </div>
