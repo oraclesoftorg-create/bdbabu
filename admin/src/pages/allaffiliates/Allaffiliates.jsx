@@ -33,6 +33,7 @@ import Header from '../../components/Header';
 import axios from 'axios';
 import toast, { Toaster } from 'react-hot-toast';
 import { Link } from 'react-router-dom';
+import { FaSave } from "react-icons/fa";
 
 const AllAffiliates = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
