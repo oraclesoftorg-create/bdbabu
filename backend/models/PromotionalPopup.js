@@ -8,8 +8,8 @@ const promotionalPopupSchema = new mongoose.Schema({
     },
     link: {
         type: String,
-        required: [true, "Link is required"],
-        trim: true
+        trim: true,
+        default: ""
     },
     status: {
         type: Boolean,

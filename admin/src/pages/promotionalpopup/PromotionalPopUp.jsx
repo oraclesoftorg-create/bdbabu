@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { FaUpload, FaTimes, FaEdit, FaTrash, FaPlus, FaEye, FaSearch, FaFilter, FaSort, FaSortUp, FaSortDown, FaCheckCircle, FaTimesCircle, FaClock, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
-import { FiRefreshCw, FiTrendingUp, FiDownload } from 'react-icons/fi';
+import { FaEdit, FaTrash, FaSearch, FaSort, FaSortUp, FaSortDown, FaSpinner } from 'react-icons/fa';
+import { FiRefreshCw, FiTrendingUp } from 'react-icons/fi';
 import { FaRegFileImage } from "react-icons/fa6";
-import { toast, Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 import Header from '../../components/Header';
 import Sidebar from '../../components/Sidebar';
 import { FaCalendarAlt } from "react-icons/fa";
@@ -136,15 +136,10 @@ const PromotionalPopUp = () => {
       return;
     }
     
-    if (!formData.link) {
-      toast.error('Please enter a link');
-      return;
-    }
-    
     try {
       setLoading(true);
       const uploadData = new FormData();
-      uploadData.append('link', formData.link);
+      uploadData.append('link', formData.link || '');
       uploadData.append('image', formData.image);
       
       const response = await fetch(`${base_url}/api/admin/promotional-popups`, {
@@ -238,7 +233,7 @@ const PromotionalPopUp = () => {
   const startEdit = (popup) => {
     setEditingPopup(popup);
     setFormData({ 
-      link: popup.link,
+      link: popup.link || '',
       image: null 
     });
     setImagePreview(null);
@@ -259,15 +254,10 @@ const PromotionalPopUp = () => {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.link) {
-      toast.error('Please enter a link');
-      return;
-    }
-    
     try {
       setLoading(true);
       const editData = new FormData();
-      editData.append('link', formData.link);
+      editData.append('link', formData.link || '');
       
       if (formData.image) {
         // Validate file size (max 10MB)
@@ -431,7 +421,7 @@ const PromotionalPopUp = () => {
             <div>
               <h1 className="text-2xl font-semibold text-white tracking-tighter uppercase">Promotional Popups</h1>
               <p className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-2">
-                <FaCalendarAlt className="text-indigo-500" /> Manage promotional popups with image and link
+                <FaCalendarAlt className="text-indigo-500" /> Manage promotional popups with image and optional link
               </p>
             </div>
             <div className="flex gap-3 mt-4 md:mt-0">
@@ -506,18 +496,20 @@ const PromotionalPopUp = () => {
               <div className="w-1 h-4 bg-indigo-500"></div> {editingPopup ? 'Edit Popup' : 'Add New Popup'}
             </h2>
             <form onSubmit={editingPopup ? handleEditSubmit : handleSubmit}>
-              {/* Link Field */}
+              {/* Link Field - Optional */}
               <div className="mb-6">
-                <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">Link *</label>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">
+                  Link <span className="text-gray-600">(Optional)</span>
+                </label>
                 <input
                   type="url"
                   name="link"
                   value={formData.link}
                   onChange={handleInputChange}
                   className={inputClass}
-                  placeholder="Enter URL (e.g., https://example.com)"
-                  required
+                  placeholder="Enter URL (e.g., https://example.com) - Optional"
                 />
+                <p className="text-[9px] text-gray-600 mt-1">Leave empty for image-only popup</p>
               </div>
               
               {/* Image Upload Section */}
@@ -606,7 +598,7 @@ const PromotionalPopUp = () => {
                 <button
                   type="submit"
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={(!formData.image && !editingPopup) || !formData.link}
+                  disabled={!formData.image && !editingPopup}
                 >
                   {loading ? 'Processing...' : editingPopup ? 'Update Popup' : 'Create Popup'}
                 </button>
@@ -671,7 +663,15 @@ const PromotionalPopUp = () => {
                               </div>
                             </td>
                             <td className="px-5 py-4">
-                              <div className="text-xs font-medium text-gray-200 truncate max-w-xs">{popup.link}</div>
+                              <div className="text-xs font-medium text-gray-200 truncate max-w-xs">
+                                {popup.link ? (
+                                  <a href={popup.link} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 hover:underline">
+                                    {popup.link}
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-500 italic">No link</span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-5 py-4 whitespace-nowrap">
                               <label className="relative inline-flex items-center cursor-pointer">

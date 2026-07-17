@@ -15746,6 +15746,7 @@ Adminrouter.delete("/sports-games/:id", async (req, res) => {
     }
 });
 // ==================== PROMOTIONAL POPUP ROUTES ====================
+// ==================== PROMOTIONAL POPUP ROUTES ====================
 
 // Configure multer for promotional popup images
 const popupStorage = multer.diskStorage({
@@ -15885,16 +15886,9 @@ Adminrouter.post(
                 });
             }
 
-            if (!req.body.link) {
-                return res.status(400).json({
-                    success: false,
-                    error: "Link is required",
-                });
-            }
-
             const popupData = {
                 image: `/uploads/popups/${req.file.filename}`,
-                link: req.body.link,
+                link: req.body.link || "",
                 status: req.body.status === "true" || req.body.status === true,
                 createdBy: req.user?._id
             };
