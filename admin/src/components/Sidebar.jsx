@@ -404,6 +404,7 @@ const Sidebar = ({ isOpen }) => {
             { to: '/content/terms-and-conditions', text: 'Terms & Conditions', requiredPermission: 'manage_terms' },
             { to: '/content/faq', text: 'FAQ Management', requiredPermission: 'manage_faq' },
             { to: '/content/logo-and-favicon', text: 'Logo And Favicon', requiredPermission: 'manage_logo' },
+            { to: '/content/promotional-popup', text: 'Promotional PopUp', requiredPermission: 'promotional_popup' },
           ],
         },
         {

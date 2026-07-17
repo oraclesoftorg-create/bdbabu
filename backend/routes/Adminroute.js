@@ -15745,5 +15745,313 @@ Adminrouter.delete("/sports-games/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to delete sports game" });
     }
 });
+// ==================== PROMOTIONAL POPUP ROUTES ====================
 
+// Configure multer for promotional popup images
+const popupStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadPath = "./public/uploads/popups/";
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        cb(null, uploadPath);
+    },
+    filename: function (req, file, cb) {
+        // Generate unique filename with timestamp
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        cb(null, "popup-" + uniqueSuffix + path.extname(file.originalname));
+    },
+});
+
+const uploadPopup = multer({
+    storage: popupStorage,
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: fileFilter,
+});
+
+// Import the PromotionalPopup model
+const PromotionalPopup = require("../models/PromotionalPopup");
+
+// ==================== PROMOTIONAL POPUP CRUD ROUTES ====================
+
+// GET all promotional popups with pagination
+Adminrouter.get("/promotional-popups", async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 10,
+            status,
+            sortBy = "createdAt",
+            sortOrder = "desc",
+        } = req.query;
+
+        let filter = {};
+
+        if (status !== undefined) {
+            filter.status = status === "true";
+        }
+
+        // Calculate skip value for pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Sort configuration
+        const sort = {};
+        sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+
+        // Get popups with pagination
+        const popups = await PromotionalPopup.find(filter)
+            .sort(sort)
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate("createdBy", "username");
+
+        // Get total count for pagination info
+        const total = await PromotionalPopup.countDocuments(filter);
+
+        res.json({
+            success: true,
+            data: popups,
+            totalPages: Math.ceil(total / parseInt(limit)),
+            currentPage: parseInt(page),
+            total,
+        });
+    } catch (error) {
+        console.error("Error fetching promotional popups:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch promotional popups",
+        });
+    }
+});
+
+// GET active promotional popups for frontend display
+Adminrouter.get("/promotional-popups/active", async (req, res) => {
+    try {
+        const activePopups = await PromotionalPopup.getActivePopups();
+
+        res.json({
+            success: true,
+            data: activePopups,
+            count: activePopups.length
+        });
+    } catch (error) {
+        console.error("Error fetching active promotional popups:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch active promotional popups",
+        });
+    }
+});
+
+// GET single promotional popup by ID
+Adminrouter.get("/promotional-popups/:id", async (req, res) => {
+    try {
+        const popup = await PromotionalPopup.findById(req.params.id)
+            .populate("createdBy", "username");
+
+        if (!popup) {
+            return res.status(404).json({
+                success: false,
+                error: "Promotional popup not found",
+            });
+        }
+
+        res.json({
+            success: true,
+            data: popup,
+        });
+    } catch (error) {
+        console.error("Error fetching promotional popup:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch promotional popup",
+        });
+    }
+});
+
+// POST create new promotional popup
+Adminrouter.post(
+    "/promotional-popups",
+    uploadPopup.single("image"),
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Please upload an image",
+                });
+            }
+
+            if (!req.body.link) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Link is required",
+                });
+            }
+
+            const popupData = {
+                image: `/uploads/popups/${req.file.filename}`,
+                link: req.body.link,
+                status: req.body.status === "true" || req.body.status === true,
+                createdBy: req.user?._id
+            };
+
+            const newPopup = new PromotionalPopup(popupData);
+            const savedPopup = await newPopup.save();
+
+            // Populate createdBy for response
+            await savedPopup.populate("createdBy", "username");
+
+            res.status(201).json({
+                success: true,
+                message: "Promotional popup created successfully",
+                data: savedPopup,
+            });
+        } catch (error) {
+            console.error("Error creating promotional popup:", error);
+            // Clean up uploaded file if error occurs
+            if (req.file) {
+                const filePath = path.join(__dirname, "..", "public", "uploads", "popups", req.file.filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            res.status(500).json({
+                success: false,
+                error: "Failed to create promotional popup",
+            });
+        }
+    }
+);
+
+// PUT update promotional popup
+Adminrouter.put(
+    "/promotional-popups/:id",
+    uploadPopup.single("image"),
+    async (req, res) => {
+        try {
+            const popup = await PromotionalPopup.findById(req.params.id);
+            if (!popup) {
+                return res.status(404).json({
+                    success: false,
+                    error: "Promotional popup not found",
+                });
+            }
+
+            // Update fields
+            if (req.body.link !== undefined) popup.link = req.body.link;
+            if (req.body.status !== undefined) popup.status = req.body.status === "true" || req.body.status === true;
+
+            // Handle image update
+            if (req.file) {
+                // Delete old image file
+                if (popup.image) {
+                    const oldImagePath = path.join(__dirname, "..", popup.image);
+                    if (fs.existsSync(oldImagePath)) {
+                        fs.unlinkSync(oldImagePath);
+                    }
+                }
+                popup.image = `/uploads/popups/${req.file.filename}`;
+            }
+
+            await popup.save();
+
+            // Populate createdBy for response
+            await popup.populate("createdBy", "username");
+
+            res.json({
+                success: true,
+                message: "Promotional popup updated successfully",
+                data: popup,
+            });
+        } catch (error) {
+            console.error("Error updating promotional popup:", error);
+            // Clean up uploaded file if error occurs
+            if (req.file) {
+                const filePath = path.join(__dirname, "..", "public", "uploads", "popups", req.file.filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            res.status(500).json({
+                success: false,
+                error: "Failed to update promotional popup",
+            });
+        }
+    }
+);
+
+// PUT update promotional popup status
+Adminrouter.put("/promotional-popups/:id/status", async (req, res) => {
+    try {
+        const { status } = req.body;
+
+        if (status === undefined || typeof status !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                error: "Valid status (boolean) is required",
+            });
+        }
+
+        const popup = await PromotionalPopup.findById(req.params.id);
+        if (!popup) {
+            return res.status(404).json({
+                success: false,
+                error: "Promotional popup not found",
+            });
+        }
+
+        popup.status = status;
+        await popup.save();
+
+        res.json({
+            success: true,
+            message: `Promotional popup ${status ? 'activated' : 'deactivated'} successfully`,
+            data: popup,
+        });
+    } catch (error) {
+        console.error("Error updating promotional popup status:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update promotional popup status",
+        });
+    }
+});
+
+// DELETE promotional popup
+Adminrouter.delete("/promotional-popups/:id", async (req, res) => {
+    try {
+        const popup = await PromotionalPopup.findById(req.params.id);
+        if (!popup) {
+            return res.status(404).json({
+                success: false,
+                error: "Promotional popup not found",
+            });
+        }
+
+        // Delete image file
+        if (popup.image) {
+            const imagePath = path.join(__dirname, "..", popup.image);
+            if (fs.existsSync(imagePath)) {
+                fs.unlinkSync(imagePath);
+            }
+        }
+
+        await PromotionalPopup.findByIdAndDelete(req.params.id);
+
+        res.json({
+            success: true,
+            message: "Promotional popup deleted successfully",
+        });
+    } catch (error) {
+        console.error("Error deleting promotional popup:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to delete promotional popup",
+        });
+    }
+});
 module.exports = Adminrouter;

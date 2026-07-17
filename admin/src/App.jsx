@@ -72,6 +72,7 @@ import NewCashBonus from './pages/cashbonuses/NewCashBonus'
 import CashBonusList from './pages/cashbonuses/CashBonusList'
 import WeeklyMonthlyBonus from './pages/cashbonuses/WeeklyMonthlyBonus'
 import SportsGame from "./pages/games/SportsGames"
+import PromotionalPopUp from './pages/promotionalpopup/PromotionalPopUp'
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const admin = localStorage.getItem('admin')
@@ -475,6 +476,16 @@ const App = () => {
           element={
             <ProtectedRoute>
               <Logouplaod />
+            </ProtectedRoute>
+          }
+        />
+             
+        <Route 
+          exact 
+          path="/content/promotional-popup" 
+          element={
+            <ProtectedRoute>
+              <PromotionalPopUp />
             </ProtectedRoute>
           }
         />
