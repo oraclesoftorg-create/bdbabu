@@ -13,6 +13,7 @@ import axios from 'axios';
 import { Mobileslider } from "../../components/home_componets/Mobileslider";
 import Sports from "../../components/home_componets/sports/Sports";
 import WelcomeBonusPopup from "./WelcomeBonusPopup";
+import PromotionalPopup from "./PromotionalPopup"; // Import the new component
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH CONTEXT
@@ -108,7 +109,6 @@ const HomeContent = () => {
   useEffect(() => {
     const shouldShow = localStorage.getItem('show_welcome_bonus');
     if (shouldShow === 'true') {
-      // Small delay so the home page renders first, then popup appears
       const t = setTimeout(() => {
         setShowWelcomePopup(true);
         localStorage.removeItem('show_welcome_bonus');
@@ -207,10 +207,13 @@ const HomeContent = () => {
   return (
     <div className="h-screen overflow-hidden font-poppins bg-[#1a1a1a] text-white">
 
+      {/* ── Promotional Popup ────────────────────────────────────────────── */}
+      <PromotionalPopup />
+
       {/* ── Welcome Bonus Popup ────────────────────────────────────────────── */}
-      {/* {showWelcomePopup && (
+      {showWelcomePopup && (
         <WelcomeBonusPopup onClose={() => setShowWelcomePopup(false)} />
-      )} */}
+      )}
 
       {/* ── Loading Overlay ────────────────────────────────────────────────── */}
       {isLoading && (
@@ -245,18 +248,17 @@ const HomeContent = () => {
 
             <main className="mx-auto w-full max-w-screen-xl px-2 md:px-4 md:py-4">
               {/* Notice */}
-       {/* Notice */}
-<div className="p-2 md:p-4 text-black border-[1px] border-gray-800 rounded-[5px] md:rounded-[10px] flex items-center justify-between">
-  <AiOutlineSound className="text-xl text-theme_color mr-2" />
-  <marquee
-    behavior="scroll"
-    scrollamount="5" 
-    direction="left"
-    className="text-[12px] md:text-[14px] text-white flex-1 font-[400]"
-  >
-    {notice || "Welcome to Our Platform - Deposit Now and Get Exciting Bonuses!"}
-  </marquee>
-</div>
+              <div className="p-2 md:p-4 text-black border-[1px] border-gray-800 rounded-[5px] md:rounded-[10px] flex items-center justify-between">
+                <AiOutlineSound className="text-xl text-theme_color mr-2" />
+                <marquee
+                  behavior="scroll"
+                  scrollamount="5" 
+                  direction="left"
+                  className="text-[12px] md:text-[14px] text-white flex-1 font-[400]"
+                >
+                  {notice || "Welcome to Our Platform - Deposit Now and Get Exciting Bonuses!"}
+                </marquee>
+              </div>
 
               <Category />
               <ProviderSlider />

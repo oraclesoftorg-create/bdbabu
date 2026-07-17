@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { FaEdit, FaTrash, FaSearch, FaSort, FaSortUp, FaSortDown, FaSpinner } from 'react-icons/fa';
 import { FiRefreshCw, FiTrendingUp } from 'react-icons/fi';
 import { FaRegFileImage } from "react-icons/fa6";
-import { toast } from 'react-hot-toast';
+import { toast, Toaster } from 'react-hot-toast';  // Added Toaster import
 import Header from '../../components/Header';
 import Sidebar from '../../components/Sidebar';
 import { FaCalendarAlt } from "react-icons/fa";
+import { FaTimes } from "react-icons/fa";
 
 const PromotionalPopUp = () => {
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
@@ -53,6 +54,7 @@ const PromotionalPopUp = () => {
       if (response.ok) {
         const data = await response.json();
         setPopups(data.data || []);
+        toast.success('Popups loaded successfully!');
       } else {
         console.error('Failed to fetch popups');
         toast.error('Failed to fetch popups');
@@ -112,6 +114,7 @@ const PromotionalPopUp = () => {
           ...formData,
           image: file
         });
+        toast.success('Image uploaded successfully!');
       };
       reader.readAsDataURL(file);
     }
@@ -126,6 +129,7 @@ const PromotionalPopUp = () => {
     // Reset file input
     const fileInput = document.getElementById('image-upload');
     if (fileInput) fileInput.value = '';
+    toast('Image removed', { icon: '🗑️' });
   };
 
   const handleSubmit = async (e) => {
@@ -158,7 +162,7 @@ const PromotionalPopUp = () => {
         setFormData({ link: '', image: null });
         setImagePreview(null);
         fetchPopups(filter);
-        toast.success('Promotional popup created successfully!');
+        toast.success('Promotional popup created successfully! 🎉');
       } else {
         const errorData = await response.json();
         toast.error(errorData.error || 'Failed to create popup');
@@ -184,7 +188,7 @@ const PromotionalPopUp = () => {
       
       if (response.ok) {
         fetchPopups(filter);
-        toast.success('Popup status updated successfully');
+        toast.success(`Popup ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
       } else {
         toast.error('Failed to update popup status');
       }
@@ -237,6 +241,7 @@ const PromotionalPopUp = () => {
       image: null 
     });
     setImagePreview(null);
+    toast('Editing popup', { icon: '✏️' });
   };
 
   const cancelEdit = () => {
@@ -249,6 +254,7 @@ const PromotionalPopUp = () => {
     // Reset file input
     const fileInput = document.getElementById('image-upload');
     if (fileInput) fileInput.value = '';
+    toast('Edit cancelled', { icon: '❌' });
   };
 
   const handleEditSubmit = async (e) => {
@@ -286,7 +292,7 @@ const PromotionalPopUp = () => {
         setFormData({ link: '', image: null });
         setImagePreview(null);
         fetchPopups(filter);
-        toast.success('Popup updated successfully!');
+        toast.success('Popup updated successfully! ✅');
       } else {
         const errorData = await response.json();
         toast.error(errorData.error || 'Failed to update popup');
@@ -381,6 +387,35 @@ const PromotionalPopUp = () => {
   return (
     <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
       <Header toggleSidebar={toggleSidebar} />
+
+      {/* Toaster for notifications - ADD THIS */}
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#1F2937',
+            color: '#fff',
+            border: '1px solid #374151',
+          },
+          success: {
+            duration: 3000,
+            style: {
+              background: '#065F46',
+              color: '#fff',
+              border: '1px solid #047857',
+            },
+          },
+          error: {
+            duration: 4000,
+            style: {
+              background: '#7F1D1D',
+              color: '#fff',
+              border: '1px solid #DC2626',
+            },
+          },
+        }}
+      />
 
       {/* Delete Confirmation Popup */}
       {showDeletePopup && (
@@ -598,9 +633,18 @@ const PromotionalPopUp = () => {
                 <button
                   type="submit"
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={!formData.image && !editingPopup}
+                  disabled={(!formData.image && !editingPopup) || loading}
                 >
-                  {loading ? 'Processing...' : editingPopup ? 'Update Popup' : 'Create Popup'}
+                  {loading ? (
+                    <>
+                      <FaSpinner className="animate-spin inline mr-2" />
+                      Processing...
+                    </>
+                  ) : editingPopup ? (
+                    'Update Popup'
+                  ) : (
+                    'Create Popup'
+                  )}
                 </button>
               </div>
             </form>

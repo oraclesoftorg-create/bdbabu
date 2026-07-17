@@ -741,4 +741,29 @@ router.get("/menu-sports-games", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch sports games" });
   }
 });
+
+// Add this import at the top with other imports
+const PromotionalPopup = require("../models/PromotionalPopup");
+
+// GET all active promotional popups for frontend
+router.get("/promotional-popups", async (req, res) => {
+  try {
+    const popups = await PromotionalPopup.find({ status: true })
+      .sort({ createdAt: -1 })
+      .select("image link createdAt");
+
+    res.json({
+      success: true,
+      data: popups,
+      count: popups.length
+    });
+  } catch (error) {
+    console.error("Error fetching promotional popups:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching promotional popups",
+      error: error.message
+    });
+  }
+});
 module.exports = router;
