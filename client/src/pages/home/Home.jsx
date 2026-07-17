@@ -13,7 +13,7 @@ import axios from 'axios';
 import { Mobileslider } from "../../components/home_componets/Mobileslider";
 import Sports from "../../components/home_componets/sports/Sports";
 import WelcomeBonusPopup from "./WelcomeBonusPopup";
-import PromotionalPopup from "./PromotionalPopup"; // Import the new component
+import { FaTimes, FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTH CONTEXT
@@ -91,6 +91,221 @@ const AuthProvider = ({ children }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROMOTIONAL POPUP COMPONENT (inline with 3-day hide logic)
+// ─────────────────────────────────────────────────────────────────────────────
+const PromotionalPopup = () => {
+  const [popups, setPopups] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isClosing, setIsClosing] = useState(false);
+  const base_url = import.meta.env.VITE_API_KEY_Base_URL;
+  const autoPlayTimer = useRef(null);
+
+  // Fetch popups with 3-day local storage verification
+  useEffect(() => {
+    const fetchPopups = async () => {
+      try {
+        setLoading(true);
+
+        // Check if user chose to hide the popup within the last 3 days
+        const hideUntil = localStorage.getItem('promo_popup_hide_until');
+        if (hideUntil && Date.now() < parseInt(hideUntil, 10)) {
+          console.log('Popup is currently hidden by user choice (3-day cooldown)');
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetching popups from:', `${base_url}/api/promotional-popups`);
+        const response = await axios.get(`${base_url}/api/promotional-popups`);
+        
+        if (response.data && response.data.success) {
+          const popupData = response.data.data || [];
+          if (popupData.length > 0) {
+            setPopups(popupData);
+            setIsVisible(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching promotional popups:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPopups();
+
+    return () => {
+      if (autoPlayTimer.current) {
+        clearInterval(autoPlayTimer.current);
+      }
+    };
+  }, []);
+
+  // Auto-play slideshow
+  useEffect(() => {
+    if (isVisible && popups.length > 1) {
+      if (autoPlayTimer.current) {
+        clearInterval(autoPlayTimer.current);
+      }
+      autoPlayTimer.current = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % popups.length);
+      }, 5000);
+    }
+
+    return () => {
+      if (autoPlayTimer.current) {
+        clearInterval(autoPlayTimer.current);
+      }
+    };
+  }, [isVisible, popups.length]);
+
+  // Close popup and save 3 days visibility blackout timestamp
+  const closePopup = () => {
+    console.log('Closing popup and hiding for 3 days');
+    
+    // 3 days calculation: 3 days * 24 hours * 60 mins * 60 secs * 1000 ms
+    const threeDaysFromNow = Date.now() + (3 * 24 * 60 * 60 * 1000);
+    localStorage.setItem('promo_popup_hide_until', threeDaysFromNow.toString());
+
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsVisible(false);
+      setIsClosing(false);
+      if (autoPlayTimer.current) {
+        clearInterval(autoPlayTimer.current);
+      }
+    }, 300);
+  };
+
+  // Navigate to previous slide
+  const goToPrevious = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + popups.length) % popups.length);
+    resetAutoPlay();
+  };
+
+  // Navigate to next slide
+  const goToNext = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % popups.length);
+    resetAutoPlay();
+  };
+
+  // Go to specific slide
+  const goToSlide = (index) => {
+    setCurrentIndex(index);
+    resetAutoPlay();
+  };
+
+  // Reset auto-play timer
+  const resetAutoPlay = () => {
+    if (autoPlayTimer.current) {
+      clearInterval(autoPlayTimer.current);
+    }
+    if (popups.length > 1) {
+      autoPlayTimer.current = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % popups.length);
+      }, 5000);
+    }
+  };
+
+  // Handle image click - open link if available
+  const handleImageClick = () => {
+    const currentPopup = popups[currentIndex];
+    if (currentPopup && currentPopup.link) {
+      window.open(currentPopup.link, '_blank');
+    }
+  };
+
+  if (loading || !isVisible || popups.length === 0) {
+    return null;
+  }
+
+  const currentPopup = popups[currentIndex];
+
+  return (
+    <div 
+      className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm transition-opacity duration-300 ${
+        isClosing ? 'opacity-0' : 'opacity-100'
+      }`}
+      onClick={closePopup}
+    >
+      <div 
+        className={`relative bg-[#120824] border border-purple-900/30 rounded-2xl p-3 md:p-5 pb-8 md:pb-10 shadow-[0_4px_24px_rgba(112,26,231,0.25)] max-w-[360px] md:max-w-3xl w-full transition-transform duration-300 ${
+          isClosing ? 'scale-95' : 'scale-100'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close Button */}
+        <button
+          onClick={closePopup}
+          className="absolute top-2.5 right-2.5 z-20 p-1.5 bg-[#2a154d]/90 hover:bg-[#3d1f6e] rounded-full text-purple-200 transition-all duration-200 hover:scale-110 shadow-md"
+        >
+          <FaTimes className="text-sm md:text-base" />
+        </button>
+
+        {/* Dynamic Aspect Ratio Wrapper */}
+        <div className="relative rounded-xl overflow-hidden bg-[#0d051c] flex justify-center items-center w-full">
+          <img
+            src={currentPopup.image.startsWith('http') ? currentPopup.image : `${base_url}${currentPopup.image}`}
+            alt={`Promotional ${currentIndex + 1}`}
+            className="w-full h-auto max-h-[65vh] md:max-h-[55vh] object-contain md:object-fill rounded-lg"
+            onClick={handleImageClick}
+            onError={(e) => {
+              console.error('Image failed to load:', currentPopup.image);
+              e.target.src = 'https://via.placeholder.com/800x400?text=Image+Not+Found';
+            }}
+          />
+
+          {/* Navigation Arrows */}
+          {popups.length > 1 && (
+            <>
+              <button
+                onClick={goToPrevious}
+                className="absolute left-1 md:left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-[#251347]/90 hover:bg-[#381c6b] rounded-full text-purple-300 transition-all duration-200 shadow-md border border-purple-800/20"
+              >
+                <FaChevronLeft className="text-xs md:text-sm" />
+              </button>
+              <button
+                onClick={goToNext}
+                className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-[#251347]/90 hover:bg-[#381c6b] rounded-full text-purple-300 transition-all duration-200 shadow-md border border-purple-800/20"
+              >
+                <FaChevronRight className="text-xs md:text-sm" />
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Slide Indicators */}
+        {popups.length > 1 && (
+          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+            {popups.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => goToSlide(index)}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  index === currentIndex
+                    ? 'bg-purple-400 w-4 shadow-[0_0_6px_#a78bfa]'
+                    : 'bg-purple-900/60 w-1.5 hover:bg-purple-700'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Link indicator */}
+        {currentPopup.link && (
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 bg-purple-950/80 border border-purple-800/30 px-3 py-0.5 rounded-full text-purple-300 text-[9px] md:text-xs whitespace-nowrap tracking-wide">
+            Click image to visit link
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HOME CONTENT
 // ─────────────────────────────────────────────────────────────────────────────
 const HomeContent = () => {
@@ -100,12 +315,9 @@ const HomeContent = () => {
   const [notice, setNotice] = useState("");
   const [brandingCache, setBrandingCache] = useState(null);
 
-  // ── Welcome bonus popup state ──────────────────────────────────────────────
   const [showWelcomePopup, setShowWelcomePopup] = useState(false);
-
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
 
-  // ── Check for new registration flag ───────────────────────────────────────
   useEffect(() => {
     const shouldShow = localStorage.getItem('show_welcome_bonus');
     if (shouldShow === 'true') {
@@ -117,7 +329,6 @@ const HomeContent = () => {
     }
   }, []);
 
-  // ── Branding fetch ─────────────────────────────────────────────────────────
   const fetchBrandingData = async () => {
     if (brandingCache) {
       setDynamicLogo(brandingCache);
@@ -150,7 +361,6 @@ const HomeContent = () => {
     }
   };
 
-  // ── Notice fetch ───────────────────────────────────────────────────────────
   const fetchNotice = async () => {
     try {
       const response = await axios.get(`${base_url}/api/notice`);
@@ -174,7 +384,6 @@ const HomeContent = () => {
     }
   };
 
-  // ── Initial load effect ────────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
 
@@ -206,16 +415,12 @@ const HomeContent = () => {
 
   return (
     <div className="h-screen overflow-hidden font-poppins bg-[#1a1a1a] text-white">
-
-      {/* ── Promotional Popup ────────────────────────────────────────────── */}
       <PromotionalPopup />
 
-      {/* ── Welcome Bonus Popup ────────────────────────────────────────────── */}
       {showWelcomePopup && (
         <WelcomeBonusPopup onClose={() => setShowWelcomePopup(false)} />
       )}
 
-      {/* ── Loading Overlay ────────────────────────────────────────────────── */}
       {isLoading && (
         <div className="fixed top-0 left-0 w-full h-full bg-[#0a0a0a] flex justify-center items-center z-[10000000]">
           <div className="relative w-36 h-36 md:w-44 md:h-44 flex justify-center items-center">
@@ -230,15 +435,13 @@ const HomeContent = () => {
         </div>
       )}
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
       <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-      {/* ── Main Layout ───────────────────────────────────────────────────── */}
       <div className="flex h-[calc(100vh-56px)]">
         <Sidebar sidebarOpen={sidebarOpen} />
 
         <div className="flex-1 overflow-auto transition-all duration-300">
-          <div className="">
+          <div>
             <div className="md:hidden">
               <Mobileslider />
             </div>
@@ -247,7 +450,6 @@ const HomeContent = () => {
             </div>
 
             <main className="mx-auto w-full max-w-screen-xl px-2 md:px-4 md:py-4">
-              {/* Notice */}
               <div className="p-2 md:p-4 text-black border-[1px] border-gray-800 rounded-[5px] md:rounded-[10px] flex items-center justify-between">
                 <AiOutlineSound className="text-xl text-theme_color mr-2" />
                 <marquee
@@ -275,9 +477,6 @@ const HomeContent = () => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HOME (root export)
-// ─────────────────────────────────────────────────────────────────────────────
 const Home = () => (
   <AuthProvider>
     <HomeContent />

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { FaTimes, FaArrowLeft, FaArrowRight } from 'react-icons/fa';
+import { IoMdClose } from "react-icons/io";
 
 const PromotionalPopup = () => {
   const [popups, setPopups] = useState([]);
@@ -159,7 +160,7 @@ const PromotionalPopup = () => {
           onClick={closePopup}
           className="absolute top-3 right-3 z-20 p-2 bg-black/60 hover:bg-black/80 rounded-full text-white transition-all duration-200 hover:scale-110"
         >
-          <FaTimes className="text-xl" />
+          <IoMdClose className="text-xl" />
         </button>
 
         {/* Image Container */}
