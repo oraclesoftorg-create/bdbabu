@@ -745,17 +745,35 @@ router.get("/menu-sports-games", async (req, res) => {
 // Add this import at the top with other imports
 const PromotionalPopup = require("../models/PromotionalPopup");
 
-// GET all active promotional popups for frontend
+// GET all active promotional popups for frontend with device type filter
 router.get("/promotional-popups", async (req, res) => {
   try {
-    const popups = await PromotionalPopup.find({ status: true })
+    const { device } = req.query; // Can be 'mobile', 'computer', or 'both'
+    
+    // Build filter for active popups
+    let filter = { status: true };
+    
+    // Apply device type filter if provided
+    if (device && ['mobile', 'computer', 'both'].includes(device)) {
+      if (device === 'both') {
+        // If device is 'both', show popups that are specifically for 'both'
+        filter.deviceType = 'both';
+      } else {
+        // If device is 'mobile' or 'computer', show popups for that specific device OR 'both'
+        filter.deviceType = { $in: [device, 'both'] };
+      }
+    }
+    // If no device parameter is provided, return all active popups
+    
+    const popups = await PromotionalPopup.find(filter)
       .sort({ createdAt: -1 })
-      .select("image link createdAt");
+      .select("image link createdAt deviceType");
 
     res.json({
       success: true,
       data: popups,
-      count: popups.length
+      count: popups.length,
+      deviceFilter: device || 'all'
     });
   } catch (error) {
     console.error("Error fetching promotional popups:", error);

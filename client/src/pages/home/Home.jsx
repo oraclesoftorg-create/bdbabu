@@ -91,7 +91,7 @@ const AuthProvider = ({ children }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROMOTIONAL POPUP COMPONENT (inline with 3-day hide logic)
+// PROMOTIONAL POPUP COMPONENT (with device detection)
 // ─────────────────────────────────────────────────────────────────────────────
 const PromotionalPopup = () => {
   const [popups, setPopups] = useState([]);
@@ -99,48 +99,109 @@ const PromotionalPopup = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
+  const [deviceType, setDeviceType] = useState('both');
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
   const autoPlayTimer = useRef(null);
 
-  // Fetch popups with 3-day local storage verification
+  // Detect device type
   useEffect(() => {
-    const fetchPopups = async () => {
-      try {
-        setLoading(true);
+    const detectDevice = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      
+      // Check if it's a mobile device
+      const isMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent);
+      
+      // Check screen width as additional check
+      const isMobileScreen = window.innerWidth <= 768;
+      
+      // Determine device type
+      if (isMobile || isMobileScreen) {
+        setDeviceType('mobile');
+        console.log('Device detected: Mobile');
+      } else {
+        setDeviceType('computer');
+        console.log('Device detected: Computer');
+      }
+    };
 
-        // Check if user chose to hide the popup within the last 3 days
-        const hideUntil = localStorage.getItem('promo_popup_hide_until');
-        if (hideUntil && Date.now() < parseInt(hideUntil, 10)) {
-          console.log('Popup is currently hidden by user choice (3-day cooldown)');
-          setLoading(false);
-          return;
-        }
+    detectDevice();
+    
+    // Add resize listener to detect orientation changes
+    const handleResize = () => {
+      const isMobileScreen = window.innerWidth <= 768;
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const isMobile = /android|webos|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent);
+      
+      const newDeviceType = (isMobile || isMobileScreen) ? 'mobile' : 'computer';
+      if (newDeviceType !== deviceType) {
+        setDeviceType(newDeviceType);
+        console.log('Device type changed to:', newDeviceType);
+        // Refetch popups when device type changes
+        fetchPopups(newDeviceType);
+      }
+    };
 
-        console.log('Fetching popups from:', `${base_url}/api/promotional-popups`);
-        const response = await axios.get(`${base_url}/api/promotional-popups`);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Fetch popups based on device type
+  const fetchPopups = async (device) => {
+    try {
+      setLoading(true);
+
+      // Check if user chose to hide the popup within the last 3 days
+      const hideUntil = localStorage.getItem('promo_popup_hide_until');
+      if (hideUntil && Date.now() < parseInt(hideUntil, 10)) {
+        console.log('Popup is currently hidden by user choice (3-day cooldown)');
+        setLoading(false);
+        return;
+      }
+
+      // Build URL with device filter
+      let url = `${base_url}/api/promotional-popups`;
+      if (device && device !== 'both') {
+        url += `?device=${device}`;
+      }
+      
+      console.log(`Fetching popups for device: ${device || 'all'} from:`, url);
+      const response = await axios.get(url);
+      
+      if (response.data && response.data.success) {
+        const popupData = response.data.data || [];
+        console.log(`Found ${popupData.length} popups for ${device || 'all'} device`);
         
-        if (response.data && response.data.success) {
-          const popupData = response.data.data || [];
-          if (popupData.length > 0) {
-            setPopups(popupData);
-            setIsVisible(true);
+        if (popupData.length > 0) {
+          setPopups(popupData);
+          setIsVisible(true);
+        } else {
+          // If no popups for specific device, try fetching all
+          if (device && device !== 'both') {
+            console.log('No popups for specific device, trying both...');
+            const fallbackResponse = await axios.get(`${base_url}/api/promotional-popups?device=both`);
+            if (fallbackResponse.data && fallbackResponse.data.success) {
+              const fallbackData = fallbackResponse.data.data || [];
+              if (fallbackData.length > 0) {
+                setPopups(fallbackData);
+                setIsVisible(true);
+              }
+            }
           }
         }
-      } catch (error) {
-        console.error('Error fetching promotional popups:', error);
-      } finally {
-        setLoading(false);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching promotional popups:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetchPopups();
-
-    return () => {
-      if (autoPlayTimer.current) {
-        clearInterval(autoPlayTimer.current);
-      }
-    };
-  }, []);
+  // Fetch popups when device type is determined
+  useEffect(() => {
+    if (deviceType) {
+      fetchPopups(deviceType);
+    }
+  }, [deviceType]);
 
   // Auto-play slideshow
   useEffect(() => {
@@ -244,6 +305,17 @@ const PromotionalPopup = () => {
         >
           <FaTimes className="text-sm md:text-base" />
         </button>
+
+        {/* Device Type Indicator */}
+        <div className="absolute top-2.5 left-2.5 z-20">
+          <span className={`px-2 py-1 rounded-full text-[8px] font-bold uppercase tracking-wider ${
+            deviceType === 'mobile' 
+              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
+              : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+          }`}>
+            {deviceType === 'mobile' ? '📱 Mobile' : '💻 Desktop'}
+          </span>
+        </div>
 
         {/* Dynamic Aspect Ratio Wrapper */}
         <div className="relative rounded-xl overflow-hidden bg-[#0d051c] flex justify-center items-center w-full">

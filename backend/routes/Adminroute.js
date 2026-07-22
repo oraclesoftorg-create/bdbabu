@@ -15777,14 +15777,16 @@ const uploadPopup = multer({
 const PromotionalPopup = require("../models/PromotionalPopup");
 
 // ==================== PROMOTIONAL POPUP CRUD ROUTES ====================
+// ==================== PROMOTIONAL POPUP CRUD ROUTES ====================
 
-// GET all promotional popups with pagination
+// GET all promotional popups with pagination and device filter
 Adminrouter.get("/promotional-popups", async (req, res) => {
     try {
         const {
             page = 1,
             limit = 10,
             status,
+            deviceType,
             sortBy = "createdAt",
             sortOrder = "desc",
         } = req.query;
@@ -15793,6 +15795,10 @@ Adminrouter.get("/promotional-popups", async (req, res) => {
 
         if (status !== undefined) {
             filter.status = status === "true";
+        }
+
+        if (deviceType && ['mobile', 'computer', 'both'].includes(deviceType)) {
+            filter.deviceType = deviceType;
         }
 
         // Calculate skip value for pagination
@@ -15828,15 +15834,24 @@ Adminrouter.get("/promotional-popups", async (req, res) => {
     }
 });
 
-// GET active promotional popups for frontend display
+// GET active promotional popups for frontend display (with device filter)
 Adminrouter.get("/promotional-popups/active", async (req, res) => {
     try {
-        const activePopups = await PromotionalPopup.getActivePopups();
+        const { device } = req.query; // Can be 'mobile', 'computer', or 'both'
+        
+        // Validate device parameter
+        let validDevice = null;
+        if (device && ['mobile', 'computer', 'both'].includes(device)) {
+            validDevice = device;
+        }
+
+        const activePopups = await PromotionalPopup.getActivePopups(validDevice);
 
         res.json({
             success: true,
             data: activePopups,
-            count: activePopups.length
+            count: activePopups.length,
+            deviceFilter: validDevice || 'all'
         });
     } catch (error) {
         console.error("Error fetching active promotional popups:", error);
@@ -15873,7 +15888,7 @@ Adminrouter.get("/promotional-popups/:id", async (req, res) => {
     }
 });
 
-// POST create new promotional popup
+// POST create new promotional popup with device type
 Adminrouter.post(
     "/promotional-popups",
     uploadPopup.single("image"),
@@ -15886,9 +15901,19 @@ Adminrouter.post(
                 });
             }
 
+            // Validate device type
+            const deviceType = req.body.deviceType || 'both';
+            if (!['mobile', 'computer', 'both'].includes(deviceType)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid device type. Must be 'mobile', 'computer', or 'both'",
+                });
+            }
+
             const popupData = {
                 image: `/uploads/popups/${req.file.filename}`,
                 link: req.body.link || "",
+                deviceType: deviceType,
                 status: req.body.status === "true" || req.body.status === true,
                 createdBy: req.user?._id
             };
@@ -15921,7 +15946,7 @@ Adminrouter.post(
     }
 );
 
-// PUT update promotional popup
+// PUT update promotional popup with device type
 Adminrouter.put(
     "/promotional-popups/:id",
     uploadPopup.single("image"),
@@ -15938,6 +15963,17 @@ Adminrouter.put(
             // Update fields
             if (req.body.link !== undefined) popup.link = req.body.link;
             if (req.body.status !== undefined) popup.status = req.body.status === "true" || req.body.status === true;
+            
+            // Update device type with validation
+            if (req.body.deviceType) {
+                if (!['mobile', 'computer', 'both'].includes(req.body.deviceType)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Invalid device type. Must be 'mobile', 'computer', or 'both'",
+                    });
+                }
+                popup.deviceType = req.body.deviceType;
+            }
 
             // Handle image update
             if (req.file) {
@@ -16011,6 +16047,43 @@ Adminrouter.put("/promotional-popups/:id/status", async (req, res) => {
         res.status(500).json({
             success: false,
             error: "Failed to update promotional popup status",
+        });
+    }
+});
+
+// PATCH update device type only
+Adminrouter.patch("/promotional-popups/:id/device-type", async (req, res) => {
+    try {
+        const { deviceType } = req.body;
+
+        if (!deviceType || !['mobile', 'computer', 'both'].includes(deviceType)) {
+            return res.status(400).json({
+                success: false,
+                error: "Valid device type is required. Must be 'mobile', 'computer', or 'both'",
+            });
+        }
+
+        const popup = await PromotionalPopup.findById(req.params.id);
+        if (!popup) {
+            return res.status(404).json({
+                success: false,
+                error: "Promotional popup not found",
+            });
+        }
+
+        popup.deviceType = deviceType;
+        await popup.save();
+
+        res.json({
+            success: true,
+            message: "Device type updated successfully",
+            data: popup,
+        });
+    } catch (error) {
+        console.error("Error updating device type:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update device type",
         });
     }
 });

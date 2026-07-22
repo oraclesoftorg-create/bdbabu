@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { FaEdit, FaTrash, FaSearch, FaSort, FaSortUp, FaSortDown, FaSpinner } from 'react-icons/fa';
 import { FiRefreshCw, FiTrendingUp } from 'react-icons/fi';
-import { FaRegFileImage } from "react-icons/fa6";
-import { toast, Toaster } from 'react-hot-toast';  // Added Toaster import
+import { FaRegFileImage,FaDesktop, FaLaptop } from "react-icons/fa6";
+import { toast, Toaster } from 'react-hot-toast';
 import Header from '../../components/Header';
 import Sidebar from '../../components/Sidebar';
 import { FaCalendarAlt } from "react-icons/fa";
 import { FaTimes } from "react-icons/fa";
+import { FaMobileAlt } from "react-icons/fa";
+
+
 
 const PromotionalPopUp = () => {
   const base_url = import.meta.env.VITE_API_KEY_Base_URL;
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [formData, setFormData] = useState({
     link: '',
-    image: null
+    image: null,
+    deviceType: 'both' // Add deviceType with default 'both'
   });
   const [imagePreview, setImagePreview] = useState(null);
   const [popups, setPopups] = useState([]);
@@ -22,7 +26,8 @@ const PromotionalPopUp = () => {
   const [showDeletePopup, setShowDeletePopup] = useState(false);
   const [popupToDelete, setPopupToDelete] = useState(null);
   const [filter, setFilter] = useState({
-    status: ''
+    status: '',
+    deviceType: '' // Add deviceType filter
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
@@ -42,6 +47,7 @@ const PromotionalPopUp = () => {
       const queryParams = new URLSearchParams();
       
       if (filters.status !== '' && filters.status !== undefined) queryParams.append('status', filters.status);
+      if (filters.deviceType && filters.deviceType !== '') queryParams.append('deviceType', filters.deviceType);
       if (searchTerm) queryParams.append('search', searchTerm);
       
       const url = `${base_url}/api/admin/promotional-popups${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
@@ -86,7 +92,7 @@ const PromotionalPopUp = () => {
   };
 
   const clearFilters = () => {
-    setFilter({ status: '' });
+    setFilter({ status: '', deviceType: '' });
     setSearchTerm('');
     fetchPopups();
   };
@@ -145,6 +151,7 @@ const PromotionalPopUp = () => {
       const uploadData = new FormData();
       uploadData.append('link', formData.link || '');
       uploadData.append('image', formData.image);
+      uploadData.append('deviceType', formData.deviceType || 'both');
       
       const response = await fetch(`${base_url}/api/admin/promotional-popups`, {
         method: 'POST',
@@ -159,7 +166,7 @@ const PromotionalPopUp = () => {
         console.log('Popup created:', result);
         
         // Reset form and refresh popups
-        setFormData({ link: '', image: null });
+        setFormData({ link: '', image: null, deviceType: 'both' });
         setImagePreview(null);
         fetchPopups(filter);
         toast.success('Promotional popup created successfully! 🎉');
@@ -238,7 +245,8 @@ const PromotionalPopUp = () => {
     setEditingPopup(popup);
     setFormData({ 
       link: popup.link || '',
-      image: null 
+      image: null,
+      deviceType: popup.deviceType || 'both'
     });
     setImagePreview(null);
     toast('Editing popup', { icon: '✏️' });
@@ -248,7 +256,8 @@ const PromotionalPopUp = () => {
     setEditingPopup(null);
     setFormData({ 
       link: '',
-      image: null 
+      image: null,
+      deviceType: 'both'
     });
     setImagePreview(null);
     // Reset file input
@@ -264,6 +273,7 @@ const PromotionalPopUp = () => {
       setLoading(true);
       const editData = new FormData();
       editData.append('link', formData.link || '');
+      editData.append('deviceType', formData.deviceType || 'both');
       
       if (formData.image) {
         // Validate file size (max 10MB)
@@ -289,7 +299,7 @@ const PromotionalPopUp = () => {
         
         // Reset form and refresh popups
         setEditingPopup(null);
-        setFormData({ link: '', image: null });
+        setFormData({ link: '', image: null, deviceType: 'both' });
         setImagePreview(null);
         fetchPopups(filter);
         toast.success('Popup updated successfully! ✅');
@@ -324,6 +334,29 @@ const PromotionalPopUp = () => {
     if (sortConfig.key !== key) return <FaSort className="text-gray-600 inline ml-1" />;
     if (sortConfig.direction === 'ascending') return <FaSortUp className="text-indigo-400 inline ml-1" />;
     return <FaSortDown className="text-indigo-400 inline ml-1" />;
+  };
+
+  const getDeviceTypeIcon = (deviceType) => {
+    switch(deviceType) {
+      case 'mobile':
+        return <FaMobileAlt className="text-blue-400" />;
+      case 'computer':
+        return <FaDesktop className="text-purple-400" />;
+      case 'both':
+        return <FaLaptop className="text-indigo-400" />;
+      default:
+        return <FaLaptop className="text-gray-400" />;
+    }
+  };
+
+  const getDeviceTypeBadge = (deviceType) => {
+    const styles = {
+      mobile: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+      computer: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+      both: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+    };
+    const style = styles[deviceType] || styles.both;
+    return `px-2 py-1 rounded-full text-[9px] font-bold border ${style}`;
   };
 
   const sortedPopups = React.useMemo(() => {
@@ -388,7 +421,7 @@ const PromotionalPopUp = () => {
     <section className="min-h-screen bg-[#0F111A] text-gray-200 font-poppins">
       <Header toggleSidebar={toggleSidebar} />
 
-      {/* Toaster for notifications - ADD THIS */}
+      {/* Toaster for notifications */}
       <Toaster 
         position="top-right"
         toastOptions={{
@@ -456,7 +489,7 @@ const PromotionalPopUp = () => {
             <div>
               <h1 className="text-2xl font-semibold text-white tracking-tighter uppercase">Promotional Popups</h1>
               <p className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-2">
-                <FaCalendarAlt className="text-indigo-500" /> Manage promotional popups with image and optional link
+                <FaCalendarAlt className="text-indigo-500" /> Manage promotional popups with image, link, and device targeting
               </p>
             </div>
             <div className="flex gap-3 mt-4 md:mt-0">
@@ -470,11 +503,12 @@ const PromotionalPopUp = () => {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             {[
               { label: 'TOTAL POPUPS', value: popups.length, color: 'border-indigo-500', valueClass: 'text-white' },
               { label: 'ACTIVE', value: popups.filter(p => p.status).length, color: 'border-emerald-500', valueClass: 'text-emerald-400' },
               { label: 'INACTIVE', value: popups.filter(p => !p.status).length, color: 'border-amber-500', valueClass: 'text-amber-400' },
+              { label: 'DEVICE TARGETED', value: popups.filter(p => p.deviceType && p.deviceType !== 'both').length, color: 'border-purple-500', valueClass: 'text-purple-400' },
             ].map((card, i) => (
               <div key={i} className={`bg-[#161B22] border-l-4 ${card.color} p-5 rounded shadow-lg border-y border-r border-gray-800`}>
                 <div className="flex justify-between items-start mb-3">
@@ -500,7 +534,7 @@ const PromotionalPopUp = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="relative">
                 <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 text-xs" />
                 <input
@@ -522,6 +556,17 @@ const PromotionalPopUp = () => {
                 <option value="true">Active</option>
                 <option value="false">Inactive</option>
               </select>
+              <select
+                name="deviceType"
+                value={filter.deviceType}
+                onChange={handleFilterChange}
+                className={selectClass}
+              >
+                <option value="">All Devices</option>
+                <option value="mobile">📱 Mobile</option>
+                <option value="computer">💻 Computer</option>
+                <option value="both">🖥️ Both</option>
+              </select>
             </div>
           </div>
 
@@ -531,6 +576,54 @@ const PromotionalPopUp = () => {
               <div className="w-1 h-4 bg-indigo-500"></div> {editingPopup ? 'Edit Popup' : 'Add New Popup'}
             </h2>
             <form onSubmit={editingPopup ? handleEditSubmit : handleSubmit}>
+              {/* Device Type Selection */}
+              <div className="mb-6">
+                <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">
+                  Device Type *
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, deviceType: 'mobile' })}
+                    className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
+                      formData.deviceType === 'mobile'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                        : 'border-gray-700 bg-[#0F111A] text-gray-500 hover:border-gray-500'
+                    }`}
+                  >
+                    <FaMobileAlt className="text-xl" />
+                    <span className="text-[10px] font-bold">Mobile</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, deviceType: 'computer' })}
+                    className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
+                      formData.deviceType === 'computer'
+                        ? 'border-purple-500 bg-purple-500/10 text-purple-400'
+                        : 'border-gray-700 bg-[#0F111A] text-gray-500 hover:border-gray-500'
+                    }`}
+                  >
+                    <FaDesktop className="text-xl" />
+                    <span className="text-[10px] font-bold">Computer</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, deviceType: 'both' })}
+                    className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
+                      formData.deviceType === 'both'
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                        : 'border-gray-700 bg-[#0F111A] text-gray-500 hover:border-gray-500'
+                    }`}
+                  >
+                    <FaLaptop className="text-xl" />
+                    <span className="text-[10px] font-bold">Both</span>
+                  </button>
+                </div>
+                <p className="text-[9px] text-gray-600 mt-2">
+                  Select which devices this popup should appear on
+                </p>
+              </div>
+
               {/* Link Field - Optional */}
               <div className="mb-6">
                 <label className="block text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">
@@ -542,7 +635,7 @@ const PromotionalPopUp = () => {
                   value={formData.link}
                   onChange={handleInputChange}
                   className={inputClass}
-                  placeholder="Enter URL (e.g., https://example.com) - Optional"
+                  placeholder="Enter URL - Optional"
                 />
                 <p className="text-[9px] text-gray-600 mt-1">Leave empty for image-only popup</p>
               </div>
@@ -684,6 +777,7 @@ const PromotionalPopUp = () => {
                       <thead className="bg-[#0F111A] text-[9px] text-gray-500 uppercase">
                         <tr>
                           <th className="px-5 py-3">Image</th>
+                          <th className="px-5 py-3">Device</th>
                           <th className="px-5 py-3 cursor-pointer" onClick={() => requestSort('link')}>
                             Link {getSortIcon('link')}
                           </th>
@@ -704,6 +798,14 @@ const PromotionalPopUp = () => {
                                   src={`${base_url}/${popup.image}`} 
                                   alt="Popup" 
                                 />
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                {getDeviceTypeIcon(popup.deviceType || 'both')}
+                                <span className={`${getDeviceTypeBadge(popup.deviceType || 'both')}`}>
+                                  {(popup.deviceType || 'both').toUpperCase()}
+                                </span>
                               </div>
                             </td>
                             <td className="px-5 py-4">
