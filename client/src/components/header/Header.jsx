@@ -1561,30 +1561,6 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
         </div>
       </div>
 
-      <div className="fixed bottom-25 md:bottom-20 right-4 z-[1000] flex flex-col gap-2">
-        <a
-          href="https://t.me/BDBABUHelpline"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="transition-all duration-300 animate-bounce hover:animate-pulse"
-          aria-label="Join Telegram Channel"
-          style={{ animationDelay: '0.1s' }}
-        >
-         <img src={telegram_icon} className="w-[80px]" alt="" />
-        </a>
-
-        <a
-          href="https://wa.me/601111855711"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="transition-all duration-300 animate-bounce hover:animate-pulse"
-          aria-label="Contact Support on WhatsApp"
-          style={{ animationDelay: '0.2s' }}
-        >
-                 <img src={whatsapp_icon} className="w-[80px]" alt="" />
-        </a>
-      </div>
-
       {showSignupPopup && (
         <div className="fixed inset-0 bg-[rgba(0,0,0,0.4)] bg-opacity-70 backdrop-blur-md flex items-center justify-center z-[10000] p-4">
           <div ref={popupRef} className="bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] border border-[#333] rounded-lg p-6 max-w-md w-full relative">
