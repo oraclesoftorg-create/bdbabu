@@ -901,17 +901,17 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
     if (!sidebarOpen) return null;
     
     return (
-      <div className="w-full flex justify-between items-center px-4 pt-4 pb-3 md:sticky top-0 left-0 bg-[#1A1A1A]">
+      <div className="w-full flex justify-between items-center  md:sticky top-0 left-0 bg-[#1A1A1A]">
         {/* Home Icon - Left side */}
-        <button
+        {/* <button
           onClick={handleHomeClick}
           className="bg-[#222424] p-2.5 rounded-[3px] flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] transition"
         >
           <FaHome className="text-white text-[18px]" />
-        </button>
+        </button> */}
         
         {/* Live Chat Link */}
-        <a
+        {/* <a
           href="https://wa.me/601111855711"
           target="_blank"
           rel="noopener noreferrer"
@@ -921,7 +921,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
             <MdSupportAgent className="text-white text-[20px]" />
             <span className="text-[13px]">{t.liveChat}</span>
           </span>
-        </a>
+        </a> */}
       </div>
     );
   };
@@ -1162,7 +1162,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
           </div>
           
           {/* Desktop Live Chat - same as before */}
-          <div className="w-full hidden md:flex justify-start items-center px-4 pt-4 pb-3 md:sticky top-0 left-0 bg-[#1A1A1A]">
+          {/* <div className="w-full hidden md:flex justify-start items-center px-4 pt-4 pb-3 md:sticky top-0 left-0 bg-[#1A1A1A]">
             <a
               href="https://wa.me/601111855711"
               target="_blank"
@@ -1174,7 +1174,7 @@ export const Header = ({ sidebarOpen, setSidebarOpen }) => {
                 <span className="text-[13px]">{t.liveChat}</span>
               </span>
             </a>
-          </div>
+          </div> */}
 
           <div className="px-4 py-3 border-b border-[#2a2a2a]">
             <div className="flex items-center justify-between">
